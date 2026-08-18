@@ -13,6 +13,7 @@ import {
 import {registerFlomoDock} from "./dock";
 import type zhCN from "./i18n/zh-CN.json";
 import "./index.scss";
+import {bindFlomoPaste} from "./paste";
 import {
     bindFlomoLinkClicks,
     openFlomoTab,
@@ -27,6 +28,7 @@ const ICON_SVG =
 export default class FlomoWebPlugin extends Plugin {
     declare i18n: typeof zhCN;
     private unbindLinkClicks?: () => void;
+    private unbindPaste?: () => void;
     private config: FlomoConfig = {...DEFAULT_CONFIG};
 
     onload() {
@@ -34,6 +36,7 @@ export default class FlomoWebPlugin extends Plugin {
         registerFlomoDock(this);
         registerFlomoTab(this);
         this.unbindLinkClicks = bindFlomoLinkClicks(this);
+        this.unbindPaste = bindFlomoPaste(this);
         this.setupSetting();
         this.loadConfig();
         console.log(this.displayName, "plugin loaded");
@@ -61,12 +64,15 @@ export default class FlomoWebPlugin extends Plugin {
     onunload() {
         this.unbindLinkClicks?.();
         this.unbindLinkClicks = undefined;
+        this.unbindPaste?.();
+        this.unbindPaste = undefined;
         console.log(this.displayName, "plugin unloaded");
     }
 
     /** 存储数据变更（如同步）。覆盖默认实现，避免整插件重载导致页签抖动 */
     onDataChanged() {
         this.loadConfig();
+        console.log(this.displayName, "data changed");
     }
 
     uninstall() {

@@ -324,8 +324,11 @@ function flomoInjectMain() {
         if (!html) {
             return;
         }
-        event.dataTransfer.setData("text/html", html);
-        event.dataTransfer.setData("text/plain", htmlToPlain(html));
+        const markedHtml = html.indexOf("<p") === 0 ?
+            html.replace("<p", '<p data-flomo-web="1"') :
+            `<div data-flomo-web="1">${html}</div>`;
+        event.dataTransfer.setData("text/html", markedHtml);
+        event.dataTransfer.setData("text/plain", "\u200cflomo-web\u200c\n" + htmlToPlain(html));
         event.dataTransfer.effectAllowed = "copy";
     }, true);
 
