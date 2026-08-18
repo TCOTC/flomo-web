@@ -17,6 +17,7 @@ export type FlomoPlugin = Plugin & {i18n: typeof zhCN;};
 export interface WebviewEl extends HTMLElement {
     src: string;
     reload: () => void;
+    stop?: () => void;
     goBack: () => void;
     goForward: () => void;
     canGoBack: () => boolean;
@@ -31,13 +32,29 @@ export interface WebviewEl extends HTMLElement {
 
 /** AbortController 挂在 window 上，思源 eval 换代后新模块才能 abort 旧的 document 监听；模块级变量过不了换代 */
 type CoverWindow = Window & {__flomoWebCoverAbort?: AbortController;};
+
+type GuestWebContents = {
+    setWindowOpenHandler?: (handler: (details: {url: string;}) => {action: "deny" | "allow";}) => void;
+};
+
 type ElectronRemote = {
     webContents?: {
-        fromId?: (id: number) => {
-            setWindowOpenHandler?: (handler: (details: {url: string;}) => {action: "deny" | "allow";}) => void;
-        } | undefined;
+        fromId?: (id: number) => GuestWebContents | undefined;
     };
 };
+
+function guestWebContentsOf(view: WebviewEl): GuestWebContents | undefined {
+    try {
+        const remote = (window as any).require?.("@electron/remote") as ElectronRemote | undefined;
+        return remote?.webContents?.fromId?.(view.getWebContentsId());
+    } catch {
+        return undefined;
+    }
+}
+
+function denyWindowOpen(): {action: "deny";} {
+    return {action: "deny"};
+}
 
 const panelUnmounts = new WeakMap<Element, () => void>();
 
@@ -103,6 +120,23 @@ export function teardownWebview(el: Element) {
         }
     } catch (e) {
         console.error("flomo-web: close DevTools failed", e);
+    }
+    try {
+        // 换成无闭包的 deny，避免 handler 继续抓住 view
+        guestWebContentsOf(view)?.setWindowOpenHandler?.(denyWindowOpen);
+    } catch (e) {
+        console.error("flomo-web: reset window-open handler failed", e);
+    }
+    try {
+        view.stop?.();
+    } catch (e) {
+        console.error("flomo-web: stop webview failed", e);
+    }
+    try {
+        // 先离开业务页再摘节点，否则 persist 分区上的 guest 有时不退
+        view.src = "about:blank";
+    } catch (e) {
+        console.error("flomo-web: blank webview failed", e);
     }
     view.remove();
 }
@@ -233,8 +267,7 @@ const WINDOW_OPEN_SHIM = "window.open=function(url){if(url)location.href=url;ret
 
 function bindGuestWindowOpen(view: WebviewEl): boolean {
     try {
-        const remote = (window as any).require?.("@electron/remote") as ElectronRemote | undefined;
-        const wc = remote?.webContents?.fromId?.(view.getWebContentsId());
+        const wc = guestWebContentsOf(view);
         if (!wc?.setWindowOpenHandler) {
             return false;
         }
@@ -242,7 +275,7 @@ function bindGuestWindowOpen(view: WebviewEl): boolean {
             if (details.url) {
                 view.src = details.url;
             }
-            return {action: "deny"};
+            return denyWindowOpen();
         });
         return true;
     } catch {
