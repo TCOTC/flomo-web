@@ -17,7 +17,6 @@ export type FlomoPlugin = Plugin & {i18n: typeof zhCN;};
 export interface WebviewEl extends HTMLElement {
     src: string;
     reload: () => void;
-    stop?: () => void;
     goBack: () => void;
     goForward: () => void;
     canGoBack: () => boolean;
@@ -49,6 +48,16 @@ function guestWebContentsOf(view: WebviewEl): GuestWebContents | undefined {
         return remote?.webContents?.fromId?.(view.getWebContentsId());
     } catch {
         return undefined;
+    }
+}
+
+/** 节点已摘掉或尚未 dom-ready 时 getWebContentsId 会抛，Electron 会拒绝其余 webview 方法 */
+function webviewGuestReady(view: WebviewEl): boolean {
+    try {
+        view.getWebContentsId();
+        return true;
+    } catch {
+        return false;
     }
 }
 
@@ -114,30 +123,19 @@ function eventString(event: Event, key: "title" | "url"): string {
 /** 关掉开发者工具并移除 webview，避免访客进程在外壳清空后仍活着 */
 export function teardownWebview(el: Element) {
     const view = el as WebviewEl;
-    try {
-        if (view.isDevToolsOpened?.()) {
-            view.closeDevTools();
+    // 手动关页签时思源会先拆 DOM 再 destroy，此时 guest 方法必然失败，跳过即可
+    if (webviewGuestReady(view)) {
+        try {
+            if (view.isDevToolsOpened()) {
+                view.closeDevTools();
+            }
+            // 换成无闭包的 deny，避免 handler 继续抓住 view
+            guestWebContentsOf(view)?.setWindowOpenHandler?.(denyWindowOpen);
+        } catch (e) {
+            console.error("flomo-web: teardown webview failed", e);
         }
-    } catch (e) {
-        console.error("flomo-web: close DevTools failed", e);
     }
-    try {
-        // 换成无闭包的 deny，避免 handler 继续抓住 view
-        guestWebContentsOf(view)?.setWindowOpenHandler?.(denyWindowOpen);
-    } catch (e) {
-        console.error("flomo-web: reset window-open handler failed", e);
-    }
-    try {
-        view.stop?.();
-    } catch (e) {
-        console.error("flomo-web: stop webview failed", e);
-    }
-    try {
-        // 先离开业务页再摘节点，否则 persist 分区上的 guest 有时不退
-        view.src = "about:blank";
-    } catch (e) {
-        console.error("flomo-web: blank webview failed", e);
-    }
+    // 不要再 load about:blank：src 是异步 IPC，立刻摘节点会变成 ERR_FAILED
     view.remove();
 }
 
