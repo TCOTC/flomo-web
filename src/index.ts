@@ -36,11 +36,11 @@ export default class FlomoWebPlugin extends Plugin {
     private unbindLinkClicks?: () => void;
     private unbindPaste?: () => void;
     private config: FlomoConfig = {...DEFAULT_CONFIG};
+    /** onload / onDataChanged / onunload 会交错触发 loadData，用票据丢弃过期回调 */
     private configTicket = 0;
 
     onload() {
         this.addIcons(ICON_SVG);
-        applyConfig(this.config);
         registerFlomoDock(this);
         registerFlomoTab(this);
         hydrateOpenFlomoTabs(this);
@@ -75,6 +75,7 @@ export default class FlomoWebPlugin extends Plugin {
     }
 
     onunload() {
+        // 作废进行中的 loadConfig，避免卸载后回调又 applyConfig
         this.configTicket++;
         this.unbindLinkClicks?.();
         this.unbindLinkClicks = undefined;
@@ -146,32 +147,27 @@ export default class FlomoWebPlugin extends Plugin {
                 });
             },
         });
+        this.addSwitch(this.i18n.immersiveTab, this.i18n.immersiveTabDesc, "immersiveTab", takeDraft);
+        this.addSwitch(this.i18n.showDevToolsButton, this.i18n.showDevToolsButtonDesc, "showDevToolsButton", takeDraft);
+    }
+
+    private addSwitch(
+        title: string,
+        description: string,
+        key: keyof FlomoConfig,
+        takeDraft: () => FlomoConfig,
+    ) {
         this.setting.addItem({
-            title: this.i18n.immersiveTab,
-            description: this.i18n.immersiveTabDesc,
+            title,
+            description,
             createActionElement: () => {
                 const current = takeDraft();
                 const input = document.createElement("input");
                 input.className = "b3-switch fn__flex-center";
                 input.type = "checkbox";
-                input.checked = current.immersiveTab;
+                input.checked = current[key];
                 input.addEventListener("change", () => {
-                    current.immersiveTab = input.checked;
-                });
-                return input;
-            },
-        });
-        this.setting.addItem({
-            title: this.i18n.showDevToolsButton,
-            description: this.i18n.showDevToolsButtonDesc,
-            createActionElement: () => {
-                const current = takeDraft();
-                const input = document.createElement("input");
-                input.className = "b3-switch fn__flex-center";
-                input.type = "checkbox";
-                input.checked = current.showDevToolsButton;
-                input.addEventListener("change", () => {
-                    current.showDevToolsButton = input.checked;
+                    current[key] = input.checked;
                 });
                 return input;
             },

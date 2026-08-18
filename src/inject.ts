@@ -1,11 +1,13 @@
 /** 注入 flomo 页面：让卡片可拖拽，并把换行拆成独立段落。 */
 
 export function getFlomoInjectScript(): string {
+    // 转成字符串后丢进 webview 执行，flomoInjectMain 不能引用模块作用域
     return `(${flomoInjectMain.toString()})();`;
 }
 
 function flomoInjectMain() {
     const w = window as Window & {__flomoWebInjected?: boolean;};
+    // dom-ready 可能再跑一遍注入脚本，用窗口标记避免重复绑定
     if (w.__flomoWebInjected) {
         return;
     }
@@ -23,22 +25,35 @@ function flomoInjectMain() {
         return escapeHtml(text).replace(/"/g, "&quot;");
     }
 
-    function isBlockTag(tag: string): boolean {
-        return (
-            tag === "P" ||
-            tag === "DIV" ||
-            tag === "H1" ||
-            tag === "H2" ||
-            tag === "H3" ||
-            tag === "H4" ||
-            tag === "H5" ||
-            tag === "H6" ||
-            tag === "LI" ||
-            tag === "BLOCKQUOTE" ||
-            tag === "SECTION" ||
-            tag === "ARTICLE"
-        );
-    }
+    const BLOCK_TAGS = new Set([
+        "P",
+        "DIV",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "LI",
+        "BLOCKQUOTE",
+        "SECTION",
+        "ARTICLE",
+    ]);
+    const SKIP_TAGS = new Set([
+        "SVG",
+        "PATH",
+        "USE",
+        "G",
+        "DEFS",
+        "CLIPPATH",
+        "RECT",
+        "CIRCLE",
+        "BUTTON",
+        "SCRIPT",
+        "STYLE",
+    ]);
+    const SKIP_CLASS =
+        /\b(related|header|tools|placeholder|base-menu-wrapper|memo-insight-entry|menu-trigger|memo-header-status)\b/;
 
     const TRAILING_PUNCT = /[.,;:!?，。；：！？、)）\]】]+$/;
 
@@ -123,40 +138,55 @@ function flomoInjectMain() {
         }
 
         function isSkippedEl(el: HTMLElement): boolean {
-            const name = el.tagName;
-            if (
-                name === "SVG" ||
-                name === "PATH" ||
-                name === "USE" ||
-                name === "G" ||
-                name === "DEFS" ||
-                name === "CLIPPATH" ||
-                name === "RECT" ||
-                name === "CIRCLE" ||
-                name === "BUTTON" ||
-                name === "SCRIPT" ||
-                name === "STYLE"
-            ) {
+            if (SKIP_TAGS.has(el.tagName)) {
                 return true;
             }
             const cls = typeof el.className === "string" ? el.className : "";
-            return /\b(related|header|tools|placeholder|base-menu-wrapper|memo-insight-entry|menu-trigger|memo-header-status)\b/
-                .test(
-                    cls,
-                );
+            return SKIP_CLASS.test(cls);
         }
 
         function absUrl(href: string): string {
             if (!href) {
                 return "";
             }
-            if (/^https?:\/\//i.test(href)) {
-                return href;
+            try {
+                const url = new URL(href, location.href);
+                if (url.protocol !== "http:" && url.protocol !== "https:") {
+                    return "";
+                }
+                return url.href;
+            } catch {
+                return "";
             }
-            if (href.charAt(0) === "/") {
-                return "https://v.flomoapp.com" + href;
+        }
+
+        /** inner_memo_link 是叠在末词上的空链，把 buffer 里最后一个不在标签内的词包成链接 */
+        function wrapTrailingWord(html: string, href: string): string {
+            let end = html.length;
+            while (end > 0 && /\s/.test(html.charAt(end - 1))) {
+                end--;
             }
-            return href;
+            if (end === 0) {
+                return html;
+            }
+            const lastLt = html.lastIndexOf("<", end - 1);
+            const lastGt = html.lastIndexOf(">", end - 1);
+            if (lastLt > lastGt) {
+                return html;
+            }
+            let start = end;
+            while (start > 0) {
+                const ch = html.charAt(start - 1);
+                if (/\s/.test(ch) || ch === ">" || ch === "<") {
+                    break;
+                }
+                start--;
+            }
+            const word = html.slice(start, end);
+            if (!word) {
+                return html;
+            }
+            return `${html.slice(0, start)}<a href="${escapeAttr(href)}">${word}</a>${html.slice(end)}`;
         }
 
         function walk(node: Node) {
@@ -186,10 +216,7 @@ function flomoInjectMain() {
                 const cls = typeof el.className === "string" ? el.className : "";
                 if (/\binner_memo_link\b/.test(cls)) {
                     if (href) {
-                        const wrapped = buffer.match(/^(.*?)([^\s<>]+)(\s*)$/);
-                        if (wrapped && wrapped[2]) {
-                            buffer = `${wrapped[1]}<a href="${escapeAttr(href)}">${wrapped[2]}</a>${wrapped[3]}`;
-                        }
+                        buffer = wrapTrailingWord(buffer, href);
                     }
                     return;
                 }
@@ -241,15 +268,10 @@ function flomoInjectMain() {
             }
             if (tag === "UL" || tag === "OL" || tag === "PRE" || tag === "TABLE") {
                 flush();
-                if (tag === "PRE" || tag === "TABLE") {
-                    blocks.push(el.outerHTML);
-                } else {
-                    el.childNodes.forEach(walk);
-                }
-                flush();
+                blocks.push(el.outerHTML);
                 return;
             }
-            if (isBlockTag(tag)) {
+            if (BLOCK_TAGS.has(tag)) {
                 flush();
                 el.childNodes.forEach(walk);
                 flush();
@@ -265,17 +287,41 @@ function flomoInjectMain() {
     }
 
     function htmlToPlain(html: string): string {
-        return html
-            .replace(/<span[^>]*data-type=["']tag["'][^>]*>([\s\S]*?)<\/span>/gi, "#$1#")
-            .replace(/<p><img[^>]*src="([^"]*)"[^>]*><\/p>/gi, "![]($1)\n\n")
-            .replace(/<\/p>\s*<p>/gi, "\n\n")
-            .replace(/<[^>]+>/g, "")
-            .replace(/&nbsp;/g, " ")
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/&quot;/g, '"')
-            .trim();
+        const wrap = document.createElement("div");
+        wrap.innerHTML = html;
+        const parts: string[] = [];
+        function walkPlain(node: Node) {
+            if (node.nodeType === Node.TEXT_NODE) {
+                parts.push(node.textContent || "");
+                return;
+            }
+            if (node.nodeType !== Node.ELEMENT_NODE) {
+                return;
+            }
+            const el = node as HTMLElement;
+            const tag = el.tagName;
+            if (tag === "SPAN" && el.getAttribute("data-type") === "tag") {
+                parts.push("#" + (el.textContent || "") + "#");
+                return;
+            }
+            if (tag === "IMG") {
+                const src = el.getAttribute("src");
+                if (src) {
+                    parts.push("![](" + src + ")\n\n");
+                }
+                return;
+            }
+            if (tag === "BR") {
+                parts.push("\n");
+                return;
+            }
+            el.childNodes.forEach(walkPlain);
+            if (tag === "P" || tag === "DIV" || tag === "LI" || tag === "TR") {
+                parts.push("\n\n");
+            }
+        }
+        wrap.childNodes.forEach(walkPlain);
+        return parts.join("").replace(/\n{3,}/g, "\n\n").trim();
     }
 
     function getContentEl(memo: Element): ParentNode {
@@ -303,15 +349,20 @@ function flomoInjectMain() {
         return srcs;
     }
 
-    function bindMemos() {
-        document.querySelectorAll(MEMO_SELECTOR).forEach((memo) => {
-            const el = memo as HTMLElement;
-            if (el.dataset.flomoWebDrag === "1") {
-                return;
-            }
-            el.dataset.flomoWebDrag = "1";
-            el.setAttribute("draggable", "true");
-        });
+    function bindMemo(memo: Element) {
+        const el = memo as HTMLElement;
+        if (el.dataset.flomoWebDrag === "1") {
+            return;
+        }
+        el.dataset.flomoWebDrag = "1";
+        el.setAttribute("draggable", "true");
+    }
+
+    function bindMemos(root: ParentNode = document) {
+        if (root instanceof Element && root.matches(MEMO_SELECTOR)) {
+            bindMemo(root);
+        }
+        root.querySelectorAll?.(MEMO_SELECTOR).forEach(bindMemo);
     }
 
     document.addEventListener("dragstart", (event) => {
@@ -324,6 +375,7 @@ function flomoInjectMain() {
         if (!html) {
             return;
         }
+        // HTML 与纯文本各打一个标记，转换后只剩一种格式时仍能识别
         const markedHtml = html.indexOf("<p") === 0 ?
             html.replace("<p", '<p data-flomo-web="1"') :
             `<div data-flomo-web="1">${html}</div>`;
@@ -332,8 +384,14 @@ function flomoInjectMain() {
         event.dataTransfer.effectAllowed = "copy";
     }, true);
 
-    const observer = new MutationObserver(() => {
-        bindMemos();
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            mutation.addedNodes.forEach((node) => {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    bindMemos(node as Element);
+                }
+            });
+        });
     });
     observer.observe(document.documentElement, {childList: true, subtree: true});
     bindMemos();
@@ -351,11 +409,4 @@ function flomoInjectMain() {
 }
 `;
     document.documentElement.appendChild(style);
-
-    (window as any).open = function(url?: string) {
-        if (url) {
-            window.location.href = url;
-        }
-        return window;
-    };
 }

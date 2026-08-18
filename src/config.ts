@@ -47,7 +47,7 @@ export function unregisterConfigPanel(panel: HTMLElement) {
 }
 
 export function applyConfig(config: FlomoConfig) {
-    current = config;
+    current = {...config};
     panels.forEach(paintPanel);
 }
 

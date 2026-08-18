@@ -1,7 +1,16 @@
 import type {IEventBusMap} from "siyuan";
 import type {FlomoPlugin} from "./view";
 
+/** text/plain 里的零宽标记；Lute 若丢掉 HTML 上的 data-flomo-web，仍能认出是本插件拖出的卡片 */
 const TEXT_MARK = "\u200cflomo-web\u200c";
+
+/** petal 把 resolve 写成了 construct signature（`new ...`），运行时其实是 `new Promise` 的 resolve 回调 */
+type PastePayload = {
+    textHTML: string;
+    textPlain: string;
+    siyuanHTML?: string;
+    files: IEventBusMap["paste"]["files"];
+};
 
 function isFlomoWebClipboard(textHTML: string, textPlain: string): boolean {
     return (textPlain && textPlain.indexOf(TEXT_MARK) >= 0) ||
@@ -35,14 +44,10 @@ export function bindFlomoPaste(plugin: FlomoPlugin): () => void {
         if (siyuanHTML || !isFlomoWebClipboard(textHTML, textPlain)) {
             return;
         }
+        // EventBus.emit 可取消；preventDefault 后思源才会等插件 resolve，见 paste.ts
         event.preventDefault();
         const {html, plain} = stripMarks(textHTML, textPlain);
-        const done = resolve as unknown as (value: {
-            textHTML: string;
-            textPlain: string;
-            siyuanHTML?: string;
-            files: typeof files;
-        }) => void;
+        const done = resolve as unknown as (value: PastePayload) => void;
         try {
             const lute = protyle.lute;
             if (!lute?.HTML2BlockDOM) {

@@ -3,9 +3,9 @@ import {
     FLOMO_URL,
     type FlomoPlugin,
     mountFlomoPanel,
+    runPanelUnmount,
+    setPanelUnmount,
 } from "./view";
-
-const unmounts = new WeakMap<Element, () => void>();
 
 export function registerFlomoDock(plugin: FlomoPlugin) {
     plugin.addDock({
@@ -19,8 +19,7 @@ export function registerFlomoDock(plugin: FlomoPlugin) {
         type: DOCK_TYPE,
         init() {
             const root = this.element as HTMLElement;
-            unmounts.get(root)?.();
-            unmounts.set(
+            setPanelUnmount(
                 root,
                 mountFlomoPanel({
                     root,
@@ -31,8 +30,7 @@ export function registerFlomoDock(plugin: FlomoPlugin) {
             );
         },
         destroy() {
-            unmounts.get(this.element)?.();
-            unmounts.delete(this.element);
+            runPanelUnmount(this.element);
         },
     });
 }

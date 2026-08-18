@@ -1,5 +1,4 @@
 import {
-    getAllModels,
     openTab,
     type Custom,
 } from "siyuan";
@@ -8,14 +7,13 @@ import {
     type FlomoPlugin,
     mountFlomoPanel,
     parseFlomoUrl,
+    runPanelUnmount,
+    setPanelUnmount,
     TAB_TYPE,
 } from "./view";
 
-const unmounts = new WeakMap<Element, () => void>();
-
 function unmountCustom(custom: Custom) {
-    unmounts.get(custom.element)?.();
-    unmounts.delete(custom.element);
+    runPanelUnmount(custom.element);
 }
 
 /** 禁用 / 更新插件时拆掉页签内容，只留外壳。不能放在 update 里，同步也会调 update */
@@ -25,9 +23,8 @@ function emptyCustom(custom: Custom) {
 }
 
 function mountCustom(custom: Custom, plugin: FlomoPlugin) {
-    unmountCustom(custom);
     const url = custom.data?.url || FLOMO_URL;
-    unmounts.set(
+    setPanelUnmount(
         custom.element,
         mountFlomoPanel({
             root: custom.element as HTMLElement,
@@ -49,7 +46,10 @@ function mountCustom(custom: Custom, plugin: FlomoPlugin) {
     );
 }
 
-/** 换上当前插件实例的钩子，否则更新后仍走旧闭包 */
+/**
+ * 换上当前插件实例的钩子，否则更新后仍走旧闭包。
+ * 把 update 置空：思源同步也会调 update，真正的重建放在 init / hydrate。
+ */
 function bindCustomHooks(custom: Custom) {
     custom.update = undefined;
     custom.destroy = function() {
@@ -57,12 +57,16 @@ function bindCustomHooks(custom: Custom) {
     };
 }
 
+function attachTab(custom: Custom, plugin: FlomoPlugin) {
+    bindCustomHooks(custom);
+    mountCustom(custom, plugin);
+}
+
 export function registerFlomoTab(plugin: FlomoPlugin) {
     plugin.addTab({
         type: TAB_TYPE,
         init(this: Custom) {
-            bindCustomHooks(this);
-            mountCustom(this, plugin);
+            attachTab(this, plugin);
         },
         destroy(this: Custom) {
             unmountCustom(this);
@@ -71,12 +75,7 @@ export function registerFlomoTab(plugin: FlomoPlugin) {
 }
 
 function eachFlomoTab(plugin: FlomoPlugin, fn: (custom: Custom) => void) {
-    const type = plugin.name + TAB_TYPE;
-    getAllModels().custom.forEach((custom) => {
-        if (custom.type === type) {
-            fn(custom);
-        }
-    });
+    plugin.getOpenedTab()[TAB_TYPE]?.forEach(fn);
 }
 
 /**
@@ -84,12 +83,10 @@ function eachFlomoTab(plugin: FlomoPlugin, fn: (custom: Custom) => void) {
  * 新实例加载后把仍打开的空壳重新挂上。
  */
 export function hydrateOpenFlomoTabs(plugin: FlomoPlugin) {
-    eachFlomoTab(plugin, (custom) => {
-        bindCustomHooks(custom);
-        mountCustom(custom, plugin);
-    });
+    eachFlomoTab(plugin, (custom) => attachTab(custom, plugin));
 }
 
+/** 禁用时思源不销毁自定义页签，只掏空内容，避免 webview 访客进程残留 */
 export function emptyOpenFlomoTabs(plugin: FlomoPlugin) {
     eachFlomoTab(plugin, emptyCustom);
 }
@@ -109,12 +106,8 @@ export function openFlomoTab(plugin: FlomoPlugin, url = FLOMO_URL, openNew = fal
     });
 }
 
-function closestEditorLink(el: EventTarget | null): HTMLElement | null {
-    let node: Node | null = el as Node | null;
-    if (node && node.nodeType === Node.TEXT_NODE) {
-        node = node.parentElement;
-    }
-    let current = node as Element | null;
+function closestEditorLink(el: Element | null): HTMLElement | null {
+    let current: Element | null = el;
     while (current && current !== document.body) {
         if (current.tagName === "A" && current.getAttribute("href")) {
             return current as HTMLElement;
@@ -141,10 +134,10 @@ export function bindFlomoLinkClicks(plugin: FlomoPlugin): () => void {
         if (event.button !== 0 || event.defaultPrevented) {
             return;
         }
-        const target = event.target as Node | null;
-        const inEditor = (event.target as Element | null)?.closest?.(
-            ".protyle-wysiwyg, .protyle-preview, .b3-typography",
-        );
+        const el = event.target instanceof Element
+            ? event.target
+            : (event.target as Node | null)?.parentElement;
+        const inEditor = el?.closest(".protyle-wysiwyg, .protyle-preview, .b3-typography");
         if (!inEditor) {
             return;
         }
@@ -152,7 +145,7 @@ export function bindFlomoLinkClicks(plugin: FlomoPlugin): () => void {
         if (sel && sel.toString() !== "" && !event.shiftKey) {
             return;
         }
-        const linkEl = closestEditorLink(target);
+        const linkEl = closestEditorLink(el);
         if (!linkEl) {
             return;
         }
@@ -161,7 +154,6 @@ export function bindFlomoLinkClicks(plugin: FlomoPlugin): () => void {
             return;
         }
         event.preventDefault();
-        event.stopPropagation();
         event.stopImmediatePropagation();
         openFlomoTab(plugin, href, true);
     };
