@@ -21,6 +21,7 @@ export interface WebviewEl extends HTMLElement {
     goForward: () => void;
     canGoBack: () => boolean;
     canGoForward: () => boolean;
+    getURL: () => string;
     openDevTools: () => void;
     closeDevTools: () => void;
     isDevToolsOpened: () => boolean;
@@ -71,6 +72,7 @@ export function mountFlomoPanel(options: {
     showMin?: boolean;
     isTab?: boolean;
     onTitle?: (title: string) => void;
+    onUrl?: (url: string) => void;
 }): () => void {
     const {root, plugin, showMin} = options;
     const i18n = plugin.i18n;
@@ -175,7 +177,22 @@ export function mountFlomoPanel(options: {
                 options.onTitle?.(title);
             }
         };
+        const onNavigate = (event: Event) => {
+            const href = (event as Event & {url?: string;}).url || view.getURL?.();
+            const abs = parseFlomoUrl(href || "");
+            if (abs) {
+                options.onUrl?.(abs);
+            }
+        };
         view.addEventListener("dom-ready", onReady as EventListener);
+        if (options.onUrl) {
+            view.addEventListener("did-navigate", onNavigate as EventListener);
+            view.addEventListener("did-navigate-in-page", onNavigate as EventListener);
+            cleanups.push(() => {
+                view.removeEventListener("did-navigate", onNavigate as EventListener);
+                view.removeEventListener("did-navigate-in-page", onNavigate as EventListener);
+            });
+        }
         if (options.onTitle) {
             view.addEventListener("page-title-updated", onPageTitle as EventListener);
             cleanups.push(() => view.removeEventListener("page-title-updated", onPageTitle as EventListener));

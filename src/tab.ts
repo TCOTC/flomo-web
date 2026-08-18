@@ -30,6 +30,13 @@ export function registerFlomoTab(plugin: FlomoPlugin) {
                     onTitle: (title) => {
                         this.tab?.updateTitle(title);
                     },
+                    onUrl: (href) => {
+                        if (this.data) {
+                            this.data.url = href;
+                        } else {
+                            this.data = {url: href};
+                        }
+                    },
                 }),
             );
         },
