@@ -1,6 +1,5 @@
 import {
     adaptHotkey,
-    getFrontend,
 } from "siyuan";
 import type {Plugin} from "siyuan";
 import {applyConfig} from "./config";
@@ -26,11 +25,6 @@ export interface WebviewEl extends HTMLElement {
     closeDevTools: () => void;
     isDevToolsOpened: () => boolean;
     executeJavaScript: (code: string) => Promise<unknown>;
-}
-
-export function isElectronDesktop(): boolean {
-    const frontEnd = getFrontend();
-    return frontEnd === "desktop" || frontEnd === "desktop-window";
 }
 
 /** 解析 flomo 网页链接，非 flomo 域名返回空字符串 */
@@ -82,20 +76,6 @@ export function mountFlomoPanel(options: {
     const tabClass = options.isTab ? " flomo-web--tab" : "";
 
     const minBtn = showMin ? iconButton("min", "#iconMin", `${i18n.min} ${adaptHotkey("⌘W")}`) : "";
-
-    if (!isElectronDesktop()) {
-        root.innerHTML = `<div class="fn__flex-1 fn__flex-column flomo-web${tabClass}">
-    <div class="block__icons">
-        <div class="block__logo fn__flex-1">
-            <svg class="block__logoicon"><use xlink:href="#iconFlomoWeb"></use></svg>${i18n.dockTitle}
-        </div>
-        ${minBtn}
-    </div>
-    <div class="b3-typography flomo-web__fallback">${i18n.desktopOnly}</div>
-</div>`;
-        applyConfig();
-        return () => undefined;
-    }
 
     const startSrc = parseFlomoUrl(options.url) || FLOMO_URL;
     const actionIcons = joinIcons([
@@ -201,33 +181,41 @@ export function mountFlomoPanel(options: {
         cleanups.push(() => view.removeEventListener("dom-ready", onReady as EventListener));
     }
 
+    /**
+     * Electron 的 webview 是独立原生层，会挡住宿主的鼠标事件。
+     * 拖页签或拖分栏经过它时，思源收不到 drop，所以临时盖一层遮罩把事件拦回来。
+     * 页签头和分栏条都在本面板之外，只能在 document 上捕获。
+     */
     function bindCover() {
         const showCover = () => cover?.classList.remove("fn__none");
         const hideCover = () => cover?.classList.add("fn__none");
 
         const onDragStart = (event: DragEvent) => {
-            const el = event.target as HTMLElement | null;
-            if (!el) {
-                return;
-            }
+            // 拖选中文本时 target 经常是文本节点，没有 getAttribute
+            const raw = event.target;
+            const el = raw instanceof Element ? raw : (raw as Node | null)?.parentElement;
+            // 思源页签是带 data-type="tab-header" 的 li，点中的可能是内部文字或图标
             if (
-                el.getAttribute("data-type") === "tab-header" ||
-                el.parentElement?.getAttribute("data-type") === "tab-header"
+                el?.getAttribute("data-type") === "tab-header" ||
+                el?.parentElement?.getAttribute("data-type") === "tab-header"
             ) {
                 showCover();
             }
         };
         const onResizeStart = (event: MouseEvent) => {
-            if ((event.target as HTMLElement).classList.contains("layout__resize")) {
+            const el = event.target;
+            if (el instanceof Element && el.classList.contains("layout__resize")) {
                 showCover();
             }
         };
         const onResizeStop = (event: MouseEvent) => {
-            if ((event.target as HTMLElement).classList.contains("layout__resize")) {
+            const el = event.target;
+            if (el instanceof Element && el.classList.contains("layout__resize")) {
                 hideCover();
             }
         };
 
+        // 捕获阶段尽早盖上，避免指针先落到 webview 上
         document.addEventListener("dragstart", onDragStart, true);
         document.addEventListener("dragend", hideCover, true);
         document.addEventListener("mousedown", onResizeStart, true);

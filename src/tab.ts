@@ -1,12 +1,10 @@
 import {
     openTab,
-    showMessage,
     type Custom,
 } from "siyuan";
 import {
     FLOMO_URL,
     type FlomoPlugin,
-    isElectronDesktop,
     mountFlomoPanel,
     parseFlomoUrl,
     TAB_TYPE,
@@ -49,10 +47,6 @@ export function registerFlomoTab(plugin: FlomoPlugin) {
 
 /** 用自定义页签打开 flomo 网页；openNew 为 true 时始终新建页签 */
 export function openFlomoTab(plugin: FlomoPlugin, url = FLOMO_URL, openNew = false) {
-    if (!isElectronDesktop()) {
-        showMessage(plugin.i18n.desktopOnly);
-        return;
-    }
     const abs = parseFlomoUrl(url) || FLOMO_URL;
     openTab({
         app: plugin.app,
