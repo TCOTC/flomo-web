@@ -1,5 +1,6 @@
 import {Plugin} from "siyuan";
 import {
+    bindFlomoLinkClicks,
     registerFlomoDock,
     WEBVIEW_PARTITION,
 } from "./dock";
@@ -11,14 +12,18 @@ const ICON_SVG =
 
 export default class FlomoWebPlugin extends Plugin {
     declare i18n: typeof zhCN;
+    private unbindLinkClicks?: () => void;
 
     onload() {
         this.addIcons(ICON_SVG);
         registerFlomoDock(this);
+        this.unbindLinkClicks = bindFlomoLinkClicks();
         console.log(this.displayName, "plugin loaded");
     }
 
     onunload() {
+        this.unbindLinkClicks?.();
+        this.unbindLinkClicks = undefined;
         console.log(this.displayName, "plugin unloaded");
     }
 
