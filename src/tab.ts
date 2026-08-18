@@ -1,4 +1,5 @@
 import {
+    getAllModels,
     openTab,
     type Custom,
 } from "siyuan";
@@ -12,37 +13,85 @@ import {
 
 const unmounts = new WeakMap<Element, () => void>();
 
+function unmountCustom(custom: Custom) {
+    unmounts.get(custom.element)?.();
+    unmounts.delete(custom.element);
+}
+
+/** 禁用 / 更新插件时拆掉页签内容，只留外壳。不能放在 update 里，同步也会调 update */
+function emptyCustom(custom: Custom) {
+    unmountCustom(custom);
+    (custom.element as HTMLElement).innerHTML = "";
+}
+
+function mountCustom(custom: Custom, plugin: FlomoPlugin) {
+    unmountCustom(custom);
+    const url = custom.data?.url || FLOMO_URL;
+    unmounts.set(
+        custom.element,
+        mountFlomoPanel({
+            root: custom.element as HTMLElement,
+            plugin,
+            url,
+            showMin: false,
+            isTab: true,
+            onTitle: (title) => {
+                custom.tab?.updateTitle(title);
+            },
+            onUrl: (href) => {
+                if (custom.data) {
+                    custom.data.url = href;
+                } else {
+                    custom.data = {url: href};
+                }
+            },
+        }),
+    );
+}
+
+/** 换上当前插件实例的钩子，否则更新后仍走旧闭包 */
+function bindCustomHooks(custom: Custom) {
+    custom.update = undefined;
+    custom.destroy = function() {
+        unmountCustom(this);
+    };
+}
+
 export function registerFlomoTab(plugin: FlomoPlugin) {
     plugin.addTab({
         type: TAB_TYPE,
         init(this: Custom) {
-            const url = this.data?.url || FLOMO_URL;
-            unmounts.set(
-                this.element,
-                mountFlomoPanel({
-                    root: this.element as HTMLElement,
-                    plugin,
-                    url,
-                    showMin: false,
-                    isTab: true,
-                    onTitle: (title) => {
-                        this.tab?.updateTitle(title);
-                    },
-                    onUrl: (href) => {
-                        if (this.data) {
-                            this.data.url = href;
-                        } else {
-                            this.data = {url: href};
-                        }
-                    },
-                }),
-            );
+            bindCustomHooks(this);
+            mountCustom(this, plugin);
         },
         destroy(this: Custom) {
-            unmounts.get(this.element)?.();
-            unmounts.delete(this.element);
+            unmountCustom(this);
         },
     });
+}
+
+function eachFlomoTab(plugin: FlomoPlugin, fn: (custom: Custom) => void) {
+    const type = plugin.name + TAB_TYPE;
+    getAllModels().custom.forEach((custom) => {
+        if (custom.type === type) {
+            fn(custom);
+        }
+    });
+}
+
+/**
+ * 思源在禁用 / 更新时不会用新插件的 init 重建已有 Custom。
+ * 新实例加载后把仍打开的空壳重新挂上。
+ */
+export function hydrateOpenFlomoTabs(plugin: FlomoPlugin) {
+    eachFlomoTab(plugin, (custom) => {
+        bindCustomHooks(custom);
+        mountCustom(custom, plugin);
+    });
+}
+
+export function emptyOpenFlomoTabs(plugin: FlomoPlugin) {
+    eachFlomoTab(plugin, emptyCustom);
 }
 
 /** 用自定义页签打开 flomo 网页；openNew 为 true 时始终新建页签 */

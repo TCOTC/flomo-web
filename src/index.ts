@@ -5,6 +5,7 @@ import {
 } from "siyuan";
 import {
     applyConfig,
+    clearConfigPanels,
     DEFAULT_CONFIG,
     type FlomoConfig,
     normalizeConfig,
@@ -16,10 +17,15 @@ import "./index.scss";
 import {bindFlomoPaste} from "./paste";
 import {
     bindFlomoLinkClicks,
+    emptyOpenFlomoTabs,
+    hydrateOpenFlomoTabs,
     openFlomoTab,
     registerFlomoTab,
 } from "./tab";
-import {WEBVIEW_PARTITION} from "./view";
+import {
+    disposeFlomoCovers,
+    WEBVIEW_PARTITION,
+} from "./view";
 
 // flomo 官方图形标路径，停靠栏用 currentColor 跟随主题
 const ICON_SVG =
@@ -30,16 +36,18 @@ export default class FlomoWebPlugin extends Plugin {
     private unbindLinkClicks?: () => void;
     private unbindPaste?: () => void;
     private config: FlomoConfig = {...DEFAULT_CONFIG};
+    private configTicket = 0;
 
     onload() {
         this.addIcons(ICON_SVG);
+        applyConfig(this.config);
         registerFlomoDock(this);
         registerFlomoTab(this);
+        hydrateOpenFlomoTabs(this);
         this.unbindLinkClicks = bindFlomoLinkClicks(this);
         this.unbindPaste = bindFlomoPaste(this);
         this.setupSetting();
         this.loadConfig();
-        console.log(this.displayName, "plugin loaded");
     }
 
     onLayoutReady() {
@@ -61,18 +69,20 @@ export default class FlomoWebPlugin extends Plugin {
         });
     }
 
+    /** 存储数据变更（如同步）。覆盖默认实现，避免整插件重载导致页签抖动 */
+    onDataChanged() {
+        this.loadConfig();
+    }
+
     onunload() {
+        this.configTicket++;
         this.unbindLinkClicks?.();
         this.unbindLinkClicks = undefined;
         this.unbindPaste?.();
         this.unbindPaste = undefined;
-        console.log(this.displayName, "plugin unloaded");
-    }
-
-    /** 存储数据变更（如同步）。覆盖默认实现，避免整插件重载导致页签抖动 */
-    onDataChanged() {
-        this.loadConfig();
-        console.log(this.displayName, "data changed");
+        emptyOpenFlomoTabs(this);
+        disposeFlomoCovers();
+        clearConfigPanels();
     }
 
     uninstall() {
@@ -89,14 +99,20 @@ export default class FlomoWebPlugin extends Plugin {
             showMessage(errorMessage);
             console.error(errorMessage);
         });
-        console.log(this.displayName, "plugin uninstalled");
     }
 
     private loadConfig() {
+        const ticket = ++this.configTicket;
         this.loadData(STORAGE_NAME).then((data) => {
+            if (ticket !== this.configTicket) {
+                return;
+            }
             this.config = normalizeConfig(data);
             applyConfig(this.config);
         }).catch((e) => {
+            if (ticket !== this.configTicket) {
+                return;
+            }
             const errorMessage = `${this.displayName}: failed to load data [${STORAGE_NAME}]: ${e.msg || e}`;
             showMessage(errorMessage);
             console.error(errorMessage);
@@ -104,11 +120,23 @@ export default class FlomoWebPlugin extends Plugin {
     }
 
     private setupSetting() {
-        let draft: FlomoConfig = {...this.config};
+        let draft: FlomoConfig | undefined;
+        const takeDraft = () => {
+            if (!draft) {
+                draft = {...this.config};
+            }
+            return draft;
+        };
         this.setting = new Setting({
             width: "520px",
             height: "auto",
+            destroyCallback: () => {
+                draft = undefined;
+            },
             confirmCallback: () => {
+                if (!draft) {
+                    return;
+                }
                 this.config = {...draft};
                 applyConfig(this.config);
                 this.saveData(STORAGE_NAME, this.config).catch((e) => {
@@ -122,13 +150,13 @@ export default class FlomoWebPlugin extends Plugin {
             title: this.i18n.immersiveTab,
             description: this.i18n.immersiveTabDesc,
             createActionElement: () => {
-                draft = {...this.config};
+                const current = takeDraft();
                 const input = document.createElement("input");
                 input.className = "b3-switch fn__flex-center";
                 input.type = "checkbox";
-                input.checked = draft.immersiveTab;
+                input.checked = current.immersiveTab;
                 input.addEventListener("change", () => {
-                    draft.immersiveTab = input.checked;
+                    current.immersiveTab = input.checked;
                 });
                 return input;
             },
@@ -137,13 +165,13 @@ export default class FlomoWebPlugin extends Plugin {
             title: this.i18n.showDevToolsButton,
             description: this.i18n.showDevToolsButtonDesc,
             createActionElement: () => {
-                draft = {...this.config};
+                const current = takeDraft();
                 const input = document.createElement("input");
                 input.className = "b3-switch fn__flex-center";
                 input.type = "checkbox";
-                input.checked = draft.showDevToolsButton;
+                input.checked = current.showDevToolsButton;
                 input.addEventListener("change", () => {
-                    draft.showDevToolsButton = input.checked;
+                    current.showDevToolsButton = input.checked;
                 });
                 return input;
             },

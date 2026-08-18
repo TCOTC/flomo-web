@@ -5,9 +5,9 @@ import {
     mountFlomoPanel,
 } from "./view";
 
-export function registerFlomoDock(plugin: FlomoPlugin) {
-    const unmounts = new WeakMap<Element, () => void>();
+const unmounts = new WeakMap<Element, () => void>();
 
+export function registerFlomoDock(plugin: FlomoPlugin) {
     plugin.addDock({
         config: {
             position: "RightTop",
@@ -19,6 +19,7 @@ export function registerFlomoDock(plugin: FlomoPlugin) {
         type: DOCK_TYPE,
         init() {
             const root = this.element as HTMLElement;
+            unmounts.get(root)?.();
             unmounts.set(
                 root,
                 mountFlomoPanel({

@@ -2,7 +2,7 @@
   "name": "flomo-web",
   "version": "1.0.0",
   "description": "Show flomo in a SiYuan dock and drag cards into the editor as blocks",
-  "main": ".src/index.js",
+  "main": "index.js",
   "scripts": {
     "format": "dprint fmt",
     "format:check": "dprint check",

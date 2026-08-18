@@ -1,8 +1,9 @@
-import {
-    adaptHotkey,
-} from "siyuan";
+import {adaptHotkey} from "siyuan";
 import type {Plugin} from "siyuan";
-import {applyConfig} from "./config";
+import {
+    registerConfigPanel,
+    unregisterConfigPanel,
+} from "./config";
 import type zhCN from "./i18n/zh-CN.json";
 import {getFlomoInjectScript} from "./inject";
 
@@ -27,6 +28,10 @@ export interface WebviewEl extends HTMLElement {
     executeJavaScript: (code: string) => Promise<unknown>;
 }
 
+type CoverWindow = Window & {__flomoWebCoverAbort?: AbortController;};
+
+let coverUsers = 0;
+
 /** 解析 flomo 网页链接，非 flomo 域名返回空字符串 */
 export function parseFlomoUrl(raw: string): string {
     const href = raw.replace(/&amp;/g, "&").trim();
@@ -36,7 +41,7 @@ export function parseFlomoUrl(raw: string): string {
             return "";
         }
         const host = url.hostname.toLowerCase();
-        if (host !== "flomoapp.com" && host !== "v.flomoapp.com" && !host.endsWith(".flomoapp.com")) {
+        if (host !== "flomoapp.com" && !host.endsWith(".flomoapp.com")) {
             return "";
         }
         return url.href;
@@ -54,9 +59,109 @@ function iconButton(type: string, href: string, label: string): string {
 }
 
 function joinIcons(icons: string[]): string {
-    return icons.join(`
-        <span class="fn__space"></span>
-        `);
+    return icons.join(iconSpace());
+}
+
+function iconSpace(extraClass = ""): string {
+    const cls = extraClass ? `fn__space ${extraClass}` : "fn__space";
+    return `<span class="${cls}"></span>`;
+}
+
+/** 关掉开发者工具并移除 webview，避免访客进程在外壳清空后仍活着 */
+export function teardownWebview(el: Element) {
+    const view = el as WebviewEl;
+    try {
+        if (view.isDevToolsOpened?.()) {
+            view.closeDevTools();
+        }
+    } catch (e) {
+        console.error("flomo-web: close DevTools failed", e);
+    }
+    view.remove();
+}
+
+function abortCoverListeners() {
+    const w = window as CoverWindow;
+    w.__flomoWebCoverAbort?.abort();
+    w.__flomoWebCoverAbort = undefined;
+}
+
+function showAllCovers() {
+    document.querySelectorAll(".flomo-web__cover").forEach((el) => {
+        el.classList.remove("fn__none");
+    });
+}
+
+function hideAllCovers() {
+    document.querySelectorAll(".flomo-web__cover").forEach((el) => {
+        el.classList.add("fn__none");
+    });
+}
+
+/**
+ * Electron 的 webview 是独立原生层，会挡住宿主的鼠标事件。
+ * 拖页签或拖分栏经过它时，思源收不到 drop，所以临时盖一层遮罩把事件拦回来。
+ * 页签头和分栏条都在本面板之外，只能在 document 上捕获。
+ */
+function bindCoverListeners() {
+    abortCoverListeners();
+    const ac = new AbortController();
+    (window as CoverWindow).__flomoWebCoverAbort = ac;
+    const signal = ac.signal;
+
+    const onDragStart = (event: DragEvent) => {
+        // 拖选中文本时 target 经常是文本节点，没有 getAttribute
+        const raw = event.target;
+        const el = raw instanceof Element ? raw : (raw as Node | null)?.parentElement;
+        // 思源页签是带 data-type="tab-header" 的 li，点中的可能是内部文字或图标
+        if (
+            el?.getAttribute("data-type") === "tab-header" ||
+            el?.parentElement?.getAttribute("data-type") === "tab-header"
+        ) {
+            showAllCovers();
+        }
+    };
+    const onResizeStart = (event: MouseEvent) => {
+        const el = event.target;
+        if (el instanceof Element && el.classList.contains("layout__resize")) {
+            showAllCovers();
+        }
+    };
+    const onResizeStop = (event: MouseEvent) => {
+        const el = event.target;
+        if (el instanceof Element && el.classList.contains("layout__resize")) {
+            hideAllCovers();
+        }
+    };
+
+    // 捕获阶段尽早盖上，避免指针先落到 webview 上
+    document.addEventListener("dragstart", onDragStart, {capture: true, signal});
+    document.addEventListener("dragend", hideAllCovers, {capture: true, signal});
+    document.addEventListener("mousedown", onResizeStart, {capture: true, signal});
+    document.addEventListener("mouseup", onResizeStop, {capture: true, signal});
+}
+
+function acquireCover() {
+    coverUsers++;
+    if (coverUsers === 1) {
+        bindCoverListeners();
+    }
+}
+
+function releaseCover() {
+    if (coverUsers <= 0) {
+        return;
+    }
+    coverUsers--;
+    if (coverUsers === 0) {
+        abortCoverListeners();
+    }
+}
+
+/** 插件卸载时强制拆掉遮罩监听，避免 eval 换代后 refcount 对不上 */
+export function disposeFlomoCovers() {
+    coverUsers = 0;
+    abortCoverListeners();
 }
 
 export function mountFlomoPanel(options: {
@@ -72,20 +177,26 @@ export function mountFlomoPanel(options: {
     const i18n = plugin.i18n;
     const cleanups: Array<() => void> = [];
     let webview: WebviewEl | null = null;
-    let cover: HTMLElement | null = null;
     const tabClass = options.isTab ? " flomo-web--tab" : "";
+
+    root.querySelectorAll("webview.flomo-web__webview").forEach((el) => {
+        teardownWebview(el);
+    });
 
     const minBtn = showMin ? iconButton("min", "#iconMin", `${i18n.min} ${adaptHotkey("⌘W")}`) : "";
 
     const startSrc = parseFlomoUrl(options.url) || FLOMO_URL;
-    const actionIcons = joinIcons([
-        iconButton("home", "#iconFlomoWebHome", i18n.home),
-        iconButton("refresh", "#iconRefresh", i18n.refresh),
-        iconButton("back", "#iconUndo", i18n.goBack),
-        iconButton("forward", "#iconRedo", i18n.goForward),
+    const actionIcons = [
+        joinIcons([
+            iconButton("home", "#iconFlomoWebHome", i18n.home),
+            iconButton("refresh", "#iconRefresh", i18n.refresh),
+            iconButton("back", "#iconUndo", i18n.goBack),
+            iconButton("forward", "#iconRedo", i18n.goForward),
+        ]),
+        iconSpace("flomo-web__devtools-gap"),
         iconButton("devtools", "#iconFlomoWebDevtools", i18n.devTools),
-        ...(minBtn ? [minBtn] : []),
-    ]);
+        minBtn ? iconSpace() + minBtn : "",
+    ].join("");
 
     root.innerHTML = `<div class="fn__flex-1 fn__flex-column flomo-web${tabClass}">
     <div class="block__icons">
@@ -101,11 +212,15 @@ export function mountFlomoPanel(options: {
 </div>`;
 
     webview = root.querySelector("webview") as WebviewEl | null;
-    cover = root.querySelector(".flomo-web__cover");
-    applyConfig();
+    const panel = root.querySelector(".flomo-web") as HTMLElement | null;
+    if (panel) {
+        registerConfigPanel(panel);
+        cleanups.push(() => unregisterConfigPanel(panel));
+    }
     bindHeader(root);
     bindWebview();
-    bindCover();
+    acquireCover();
+    cleanups.push(releaseCover);
 
     function bindHeader(host: HTMLElement) {
         const icons = host.querySelector(".block__icons");
@@ -181,57 +296,12 @@ export function mountFlomoPanel(options: {
         cleanups.push(() => view.removeEventListener("dom-ready", onReady as EventListener));
     }
 
-    /**
-     * Electron 的 webview 是独立原生层，会挡住宿主的鼠标事件。
-     * 拖页签或拖分栏经过它时，思源收不到 drop，所以临时盖一层遮罩把事件拦回来。
-     * 页签头和分栏条都在本面板之外，只能在 document 上捕获。
-     */
-    function bindCover() {
-        const showCover = () => cover?.classList.remove("fn__none");
-        const hideCover = () => cover?.classList.add("fn__none");
-
-        const onDragStart = (event: DragEvent) => {
-            // 拖选中文本时 target 经常是文本节点，没有 getAttribute
-            const raw = event.target;
-            const el = raw instanceof Element ? raw : (raw as Node | null)?.parentElement;
-            // 思源页签是带 data-type="tab-header" 的 li，点中的可能是内部文字或图标
-            if (
-                el?.getAttribute("data-type") === "tab-header" ||
-                el?.parentElement?.getAttribute("data-type") === "tab-header"
-            ) {
-                showCover();
-            }
-        };
-        const onResizeStart = (event: MouseEvent) => {
-            const el = event.target;
-            if (el instanceof Element && el.classList.contains("layout__resize")) {
-                showCover();
-            }
-        };
-        const onResizeStop = (event: MouseEvent) => {
-            const el = event.target;
-            if (el instanceof Element && el.classList.contains("layout__resize")) {
-                hideCover();
-            }
-        };
-
-        // 捕获阶段尽早盖上，避免指针先落到 webview 上
-        document.addEventListener("dragstart", onDragStart, true);
-        document.addEventListener("dragend", hideCover, true);
-        document.addEventListener("mousedown", onResizeStart, true);
-        document.addEventListener("mouseup", onResizeStop, true);
-        cleanups.push(() => {
-            document.removeEventListener("dragstart", onDragStart, true);
-            document.removeEventListener("dragend", hideCover, true);
-            document.removeEventListener("mousedown", onResizeStart, true);
-            document.removeEventListener("mouseup", onResizeStop, true);
-        });
-    }
-
     return () => {
         cleanups.forEach((fn) => fn());
         cleanups.length = 0;
-        webview = null;
-        cover = null;
+        if (webview) {
+            teardownWebview(webview);
+            webview = null;
+        }
     };
 }

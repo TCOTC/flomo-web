@@ -22,3 +22,14 @@
     z-index: 1;
   }
 }
+
+.flomo-web--tab.flomo-web--immersive > .block__icons {
+  display: none;
+}
+
+.flomo-web:not(.flomo-web--show-devtools) {
+  [data-type="devtools"],
+  .flomo-web__devtools-gap {
+    display: none;
+  }
+}
