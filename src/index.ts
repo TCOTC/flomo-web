@@ -48,6 +48,8 @@ export default class FlomoWebPlugin extends Plugin {
         this.unbindPaste = bindFlomoPaste(this);
         this.setupSetting();
         this.loadConfig();
+
+        console.log(this.displayName, "plugin loaded");
     }
 
     onLayoutReady() {
@@ -72,6 +74,8 @@ export default class FlomoWebPlugin extends Plugin {
     /** 存储数据变更（如同步）。覆盖默认实现，避免整插件重载导致页签抖动 */
     onDataChanged() {
         this.loadConfig();
+
+        console.log(this.displayName, "plugin config changed");
     }
 
     onunload() {
@@ -84,6 +88,8 @@ export default class FlomoWebPlugin extends Plugin {
         emptyOpenFlomoTabs(this);
         disposeFlomoCovers();
         clearConfigPanels();
+
+        console.log(this.displayName, "plugin unloaded");
     }
 
     uninstall() {
@@ -100,6 +106,8 @@ export default class FlomoWebPlugin extends Plugin {
             showMessage(errorMessage);
             console.error(errorMessage);
         });
+
+        console.log(this.displayName, "plugin uninstalled");
     }
 
     private loadConfig() {
