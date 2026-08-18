@@ -4,7 +4,7 @@ import {
     showMessage,
 } from "siyuan";
 import {
-    applyImmersiveTab,
+    applyConfig,
     DEFAULT_CONFIG,
     type FlomoConfig,
     normalizeConfig,
@@ -95,7 +95,7 @@ export default class FlomoWebPlugin extends Plugin {
     private loadConfig() {
         this.loadData(STORAGE_NAME).then((data) => {
             this.config = normalizeConfig(data);
-            applyImmersiveTab(this.config.immersiveTab);
+            applyConfig(this.config);
         }).catch((e) => {
             const errorMessage = `${this.displayName}: failed to load data [${STORAGE_NAME}]: ${e.msg || e}`;
             showMessage(errorMessage);
@@ -110,7 +110,7 @@ export default class FlomoWebPlugin extends Plugin {
             height: "auto",
             confirmCallback: () => {
                 this.config = {...draft};
-                applyImmersiveTab(this.config.immersiveTab);
+                applyConfig(this.config);
                 this.saveData(STORAGE_NAME, this.config).catch((e) => {
                     const errorMessage = `${this.displayName}: failed to save data [${STORAGE_NAME}]: ${e.msg || e}`;
                     showMessage(errorMessage);
@@ -129,6 +129,21 @@ export default class FlomoWebPlugin extends Plugin {
                 input.checked = draft.immersiveTab;
                 input.addEventListener("change", () => {
                     draft.immersiveTab = input.checked;
+                });
+                return input;
+            },
+        });
+        this.setting.addItem({
+            title: this.i18n.showDevToolsButton,
+            description: this.i18n.showDevToolsButtonDesc,
+            createActionElement: () => {
+                draft = {...this.config};
+                const input = document.createElement("input");
+                input.className = "b3-switch fn__flex-center";
+                input.type = "checkbox";
+                input.checked = draft.showDevToolsButton;
+                input.addEventListener("change", () => {
+                    draft.showDevToolsButton = input.checked;
                 });
                 return input;
             },

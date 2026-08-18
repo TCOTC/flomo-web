@@ -9,5 +9,7 @@
   "devTools": "DevTools",
   "min": "Min",
   "immersiveTab": "Immersive tab",
-  "immersiveTabDesc": "Hide the toolbar inside tabs so the web page fills the tab."
+  "immersiveTabDesc": "Hide the toolbar inside tabs so the web page fills the tab.",
+  "showDevToolsButton": "Show DevTools button",
+  "showDevToolsButtonDesc": "Show a toolbar button that opens the webview developer tools."
 }

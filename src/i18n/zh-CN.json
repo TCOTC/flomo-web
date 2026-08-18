@@ -9,5 +9,7 @@
   "devTools": "开发者工具",
   "min": "最小化",
   "immersiveTab": "沉浸页签",
-  "immersiveTabDesc": "隐藏页签内的工具栏，让网页铺满页签。"
+  "immersiveTabDesc": "隐藏页签内的工具栏，让网页铺满页签。",
+  "showDevToolsButton": "显示开发者工具按钮",
+  "showDevToolsButtonDesc": "在工具栏显示用于打开网页开发者工具的按钮。"
 }
