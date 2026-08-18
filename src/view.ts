@@ -5,7 +5,7 @@ import {
     unregisterConfigPanel,
 } from "./config";
 import type zhCN from "./i18n/zh-CN.json";
-import {getFlomoInjectScript} from "./inject";
+import {getFlomoInjectScript, GUEST_OPEN_PREFIX} from "./inject";
 
 export const FLOMO_URL = "https://v.flomoapp.com";
 export const DOCK_TYPE = "flomo";
@@ -34,6 +34,14 @@ type CoverWindow = Window & {__flomoWebCoverAbort?: AbortController;};
 
 type GuestWebContents = {
     setWindowOpenHandler?: (handler: (details: {url: string;}) => {action: "deny" | "allow";}) => void;
+    on?: (event: string, listener: (...args: unknown[]) => void) => void;
+    removeListener?: (event: string, listener: (...args: unknown[]) => void) => void;
+    debugger?: {
+        attach: (protocol?: string) => void;
+        detach: () => void;
+        isAttached: () => boolean;
+        sendCommand: (method: string, params?: object) => Promise<unknown>;
+    };
 };
 
 type ElectronRemote = {
@@ -41,6 +49,10 @@ type ElectronRemote = {
         fromId?: (id: number) => GuestWebContents | undefined;
     };
 };
+
+export function findFlomoWebviews(): WebviewEl[] {
+    return Array.from(document.querySelectorAll("webview.flomo-web__webview")) as WebviewEl[];
+}
 
 function guestWebContentsOf(view: WebviewEl): GuestWebContents | undefined {
     try {
@@ -52,7 +64,7 @@ function guestWebContentsOf(view: WebviewEl): GuestWebContents | undefined {
 }
 
 /** 节点已摘掉或尚未 dom-ready 时 getWebContentsId 会抛，Electron 会拒绝其余 webview 方法 */
-function webviewGuestReady(view: WebviewEl): boolean {
+export function webviewGuestReady(view: WebviewEl): boolean {
     try {
         view.getWebContentsId();
         return true;
@@ -63,6 +75,89 @@ function webviewGuestReady(view: WebviewEl): boolean {
 
 function denyWindowOpen(): {action: "deny";} {
     return {action: "deny"};
+}
+
+function isHttpUrl(raw: string): boolean {
+    try {
+        const url = new URL(raw);
+        return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+        return false;
+    }
+}
+
+/** 非 flomo 链接交给思源的 window.open（不要自己 shell.openExternal） */
+function openBySiyuan(raw: string) {
+    if (!isHttpUrl(raw)) {
+        return;
+    }
+    window.open(raw);
+}
+
+/** 思源 html[data-theme-mode]，不跟操作系统 */
+function siyuanIsDark(): boolean {
+    const mode = document.documentElement.getAttribute("data-theme-mode");
+    if (mode === "dark") {
+        return true;
+    }
+    if (mode === "light") {
+        return false;
+    }
+    return (window as any).siyuan?.config?.appearance?.mode === 1;
+}
+
+function applyGuestColorScheme(view: WebviewEl) {
+    if (!webviewGuestReady(view)) {
+        return;
+    }
+    const dark = siyuanIsDark();
+    const scheme = dark ? "dark" : "light";
+    try {
+        const dbg = guestWebContentsOf(view)?.debugger;
+        if (dbg) {
+            if (!dbg.isAttached()) {
+                dbg.attach("1.3");
+            }
+            void dbg.sendCommand("Emulation.setEmulatedMedia", {
+                features: [{name: "prefers-color-scheme", value: scheme}],
+            });
+        }
+    } catch (e) {
+        console.error("flomo-web: emulate color-scheme failed", e);
+    }
+    view.executeJavaScript(
+        `document.documentElement.style.colorScheme=${JSON.stringify(scheme)}`,
+    ).catch(() => {
+        // 页面可能还没建好 documentElement
+    });
+}
+
+let themeUsers = 0;
+let themeObserver: MutationObserver | undefined;
+
+function acquireThemeWatch() {
+    themeUsers++;
+    if (themeUsers !== 1) {
+        return;
+    }
+    themeObserver = new MutationObserver(() => {
+        findFlomoWebviews().forEach(applyGuestColorScheme);
+    });
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme-mode"],
+    });
+}
+
+function releaseThemeWatch() {
+    if (themeUsers <= 0) {
+        return;
+    }
+    themeUsers--;
+    if (themeUsers === 0) {
+        themeObserver?.disconnect();
+        themeObserver = undefined;
+    }
 }
 
 const panelUnmounts = new WeakMap<Element, () => void>();
@@ -115,7 +210,7 @@ function iconSpace(extraClass = ""): string {
     return `<span class="${cls}"></span>`;
 }
 
-function eventString(event: Event, key: "title" | "url"): string {
+function eventString(event: Event, key: "title" | "url" | "message"): string {
     const value = (event as unknown as Record<string, unknown>)[key];
     return typeof value === "string" ? value : "";
 }
@@ -233,6 +328,9 @@ function releaseCover() {
 export function disposeFlomoCovers() {
     coverUsers = 0;
     abortCoverListeners();
+    themeUsers = 0;
+    themeObserver?.disconnect();
+    themeObserver = undefined;
 }
 
 const HEADER_ACTIONS: Record<string, (view: WebviewEl) => void> = {
@@ -261,7 +359,16 @@ const HEADER_ACTIONS: Record<string, (view: WebviewEl) => void> = {
     },
 };
 
-const WINDOW_OPEN_SHIM = "window.open=function(url){if(url)location.href=url;return window;}";
+function routeGuestUrl(view: WebviewEl, raw: string) {
+    const flomo = parseFlomoUrl(raw);
+    if (flomo) {
+        view.src = flomo;
+        return;
+    }
+    if (isHttpUrl(raw)) {
+        openBySiyuan(raw);
+    }
+}
 
 function bindGuestWindowOpen(view: WebviewEl): boolean {
     try {
@@ -271,7 +378,7 @@ function bindGuestWindowOpen(view: WebviewEl): boolean {
         }
         wc.setWindowOpenHandler((details) => {
             if (details.url) {
-                view.src = details.url;
+                routeGuestUrl(view, details.url);
             }
             return denyWindowOpen();
         });
@@ -279,6 +386,54 @@ function bindGuestWindowOpen(view: WebviewEl): boolean {
     } catch {
         return false;
     }
+}
+
+function bindGuestConsoleOpen(view: WebviewEl): () => void {
+    const onConsole = (event: Event) => {
+        const msg = eventString(event, "message");
+        if (msg.indexOf(GUEST_OPEN_PREFIX) !== 0) {
+            return;
+        }
+        openBySiyuan(msg.slice(GUEST_OPEN_PREFIX.length));
+    };
+    view.addEventListener("console-message", onConsole as EventListener);
+    return () => view.removeEventListener("console-message", onConsole as EventListener);
+}
+
+function bindGuestNavigateGuard(view: WebviewEl): () => void {
+    const wc = guestWebContentsOf(view);
+    if (!wc?.on) {
+        return () => undefined;
+    }
+    const onNavigate = (...args: unknown[]) => {
+        const first = args[0] as {preventDefault?: () => void; url?: string;} | string | undefined;
+        const second = args[1];
+        let href = "";
+        let prevent: (() => void) | undefined;
+        if (typeof first === "string") {
+            href = first;
+        } else if (first && typeof first === "object") {
+            prevent = first.preventDefault?.bind(first);
+            href = typeof first.url === "string" ? first.url : "";
+        }
+        if (!href && typeof second === "string") {
+            href = second;
+        }
+        if (!href || parseFlomoUrl(href)) {
+            return;
+        }
+        if (!isHttpUrl(href)) {
+            return;
+        }
+        prevent?.();
+        openBySiyuan(href);
+    };
+    wc.on("will-navigate", onNavigate);
+    wc.on("will-redirect", onNavigate);
+    return () => {
+        wc.removeListener?.("will-navigate", onNavigate);
+        wc.removeListener?.("will-redirect", onNavigate);
+    };
 }
 
 export function mountFlomoPanel(options: {
@@ -337,7 +492,9 @@ export function mountFlomoPanel(options: {
     bindHeader(root);
     bindWebview();
     acquireCover();
+    acquireThemeWatch();
     cleanups.push(releaseCover);
+    cleanups.push(releaseThemeWatch);
 
     function bindHeader(host: HTMLElement) {
         const icons = host.querySelector(".block__icons");
@@ -366,12 +523,15 @@ export function mountFlomoPanel(options: {
         if (!view) {
             return;
         }
+        let navigated = false;
         const onReady = () => {
-            if (!bindGuestWindowOpen(view)) {
-                view.executeJavaScript(WINDOW_OPEN_SHIM).catch((e) => {
-                    console.error(`${plugin.displayName}: bind window.open failed`, e);
-                });
+            bindGuestWindowOpen(view);
+            if (!navigated) {
+                navigated = true;
+                cleanups.push(bindGuestNavigateGuard(view));
+                cleanups.push(bindGuestConsoleOpen(view));
             }
+            applyGuestColorScheme(view);
             view.executeJavaScript(getFlomoInjectScript()).catch((e) => {
                 console.error(`${plugin.displayName}: inject flomo script failed`, e);
             });

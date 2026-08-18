@@ -1,4 +1,5 @@
 import type {IEventBusMap} from "siyuan";
+import {localizePastedAssets} from "./assets";
 import type {FlomoPlugin} from "./view";
 
 /** text/plain 里的零宽标记；Lute 若丢掉 HTML 上的 data-flomo-web，仍能认出是本插件拖出的卡片 */
@@ -57,12 +58,22 @@ export function bindFlomoPaste(plugin: FlomoPlugin): () => void {
             if (!dom) {
                 throw new Error("HTML2BlockDOM returned empty");
             }
+            const wrap = document.createElement("div");
+            wrap.innerHTML = dom;
+            const blockIds: string[] = [];
+            Array.from(wrap.children).forEach((el) => {
+                const id = el.getAttribute("data-node-id");
+                if (id) {
+                    blockIds.push(id);
+                }
+            });
             done({
                 textHTML: html,
                 textPlain: plain,
-                siyuanHTML: dom,
+                siyuanHTML: wrap.innerHTML,
                 files,
             });
+            localizePastedAssets({plugin, protyle, blockIds, wrap});
         } catch (e) {
             console.error(`${plugin.displayName}: HTML2BlockDOM failed`, e);
             done({

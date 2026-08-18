@@ -91,8 +91,8 @@ export function emptyOpenFlomoTabs(plugin: FlomoPlugin) {
     eachFlomoTab(plugin, emptyCustom);
 }
 
-/** 用自定义页签打开 flomo 网页；openNew 为 true 时始终新建页签 */
-export function openFlomoTab(plugin: FlomoPlugin, url = FLOMO_URL, openNew = false) {
+/** 用自定义页签打开 flomo 网页；默认新开，不复用已有页签 */
+export function openFlomoTab(plugin: FlomoPlugin, url = FLOMO_URL, openNew = true) {
     const abs = parseFlomoUrl(url) || FLOMO_URL;
     openTab({
         app: plugin.app,
