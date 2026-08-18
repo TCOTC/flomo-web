@@ -7,5 +7,7 @@
   "goBack": "后退",
   "goForward": "前进",
   "devTools": "开发者工具",
-  "min": "最小化"
+  "min": "最小化",
+  "immersiveTab": "沉浸页签",
+  "immersiveTabDesc": "隐藏页签内的工具栏，让网页铺满页签。"
 }

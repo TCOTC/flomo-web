@@ -26,6 +26,7 @@ export function registerFlomoTab(plugin: FlomoPlugin) {
                     plugin,
                     url,
                     showMin: false,
+                    isTab: true,
                     onTitle: (title) => {
                         this.tab?.updateTitle(title);
                     },

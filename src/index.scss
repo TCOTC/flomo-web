@@ -2,6 +2,11 @@
   min-height: 0;
   height: 100%;
 
+  // 沉浸页签：只看页签根节点上的 data-immersive-tab
+  &--tab[data-immersive-tab="true"] > .block__icons {
+    display: none;
+  }
+
   &__stage {
     position: relative;
     min-height: 0;

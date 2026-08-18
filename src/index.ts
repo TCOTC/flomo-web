@@ -1,4 +1,15 @@
-import {Plugin} from "siyuan";
+import {
+    Plugin,
+    Setting,
+    showMessage,
+} from "siyuan";
+import {
+    applyImmersiveTab,
+    DEFAULT_CONFIG,
+    type FlomoConfig,
+    normalizeConfig,
+    STORAGE_NAME,
+} from "./config";
 import {registerFlomoDock} from "./dock";
 import type zhCN from "./i18n/zh-CN.json";
 import "./index.scss";
@@ -16,12 +27,22 @@ const ICON_SVG =
 export default class FlomoWebPlugin extends Plugin {
     declare i18n: typeof zhCN;
     private unbindLinkClicks?: () => void;
+    private config: FlomoConfig = {...DEFAULT_CONFIG};
 
     onload() {
         this.addIcons(ICON_SVG);
         registerFlomoDock(this);
         registerFlomoTab(this);
         this.unbindLinkClicks = bindFlomoLinkClicks(this);
+        this.setupSetting();
+        this.loadData(STORAGE_NAME).then((data) => {
+            this.config = normalizeConfig(data);
+            applyImmersiveTab(this.config.immersiveTab);
+        }).catch((e) => {
+            const errorMessage = `${this.displayName}: failed to load data [${STORAGE_NAME}]: ${e.msg || e}`;
+            showMessage(errorMessage);
+            console.error(errorMessage);
+        });
         console.log(this.displayName, "plugin loaded");
     }
 
@@ -57,6 +78,45 @@ export default class FlomoWebPlugin extends Plugin {
         } catch (e) {
             console.error(`${this.displayName}: failed to clear flomo session`, e);
         }
+        this.removeData(STORAGE_NAME).catch((e) => {
+            const errorMessage = `${this.displayName}: failed to uninstall remove data [${STORAGE_NAME}]: ${
+                e.msg || e
+            }`;
+            showMessage(errorMessage);
+            console.error(errorMessage);
+        });
         console.log(this.displayName, "plugin uninstalled");
+    }
+
+    private setupSetting() {
+        let draft: FlomoConfig = {...this.config};
+        this.setting = new Setting({
+            width: "520px",
+            height: "auto",
+            confirmCallback: () => {
+                this.config = {...draft};
+                applyImmersiveTab(this.config.immersiveTab);
+                this.saveData(STORAGE_NAME, this.config).catch((e) => {
+                    const errorMessage = `${this.displayName}: failed to save data [${STORAGE_NAME}]: ${e.msg || e}`;
+                    showMessage(errorMessage);
+                    console.error(errorMessage);
+                });
+            },
+        });
+        this.setting.addItem({
+            title: this.i18n.immersiveTab,
+            description: this.i18n.immersiveTabDesc,
+            createActionElement: () => {
+                draft = {...this.config};
+                const input = document.createElement("input");
+                input.className = "b3-switch fn__flex-center";
+                input.type = "checkbox";
+                input.checked = draft.immersiveTab;
+                input.addEventListener("change", () => {
+                    draft.immersiveTab = input.checked;
+                });
+                return input;
+            },
+        });
     }
 }

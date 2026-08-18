@@ -3,6 +3,7 @@ import {
     getFrontend,
 } from "siyuan";
 import type {Plugin} from "siyuan";
+import {getImmersiveTab} from "./config";
 import type zhCN from "./i18n/zh-CN.json";
 import {getFlomoInjectScript} from "./inject";
 
@@ -68,6 +69,7 @@ export function mountFlomoPanel(options: {
     plugin: FlomoPlugin;
     url: string;
     showMin?: boolean;
+    isTab?: boolean;
     onTitle?: (title: string) => void;
 }): () => void {
     const {root, plugin, showMin} = options;
@@ -75,11 +77,13 @@ export function mountFlomoPanel(options: {
     const cleanups: Array<() => void> = [];
     let webview: WebviewEl | null = null;
     let cover: HTMLElement | null = null;
+    const tabClass = options.isTab ? " flomo-web--tab" : "";
+    const immersiveAttr = options.isTab ? ` data-immersive-tab="${getImmersiveTab() ? "true" : "false"}"` : "";
 
     const minBtn = showMin ? iconButton("min", "#iconMin", `${i18n.min} ${adaptHotkey("⌘W")}`) : "";
 
     if (!isElectronDesktop()) {
-        root.innerHTML = `<div class="fn__flex-1 fn__flex-column flomo-web">
+        root.innerHTML = `<div class="fn__flex-1 fn__flex-column flomo-web${tabClass}"${immersiveAttr}>
     <div class="block__icons">
         <div class="block__logo fn__flex-1">
             <svg class="block__logoicon"><use xlink:href="#iconFlomoWeb"></use></svg>${i18n.dockTitle}
@@ -101,7 +105,7 @@ export function mountFlomoPanel(options: {
         ...(minBtn ? [minBtn] : []),
     ]);
 
-    root.innerHTML = `<div class="fn__flex-1 fn__flex-column flomo-web">
+    root.innerHTML = `<div class="fn__flex-1 fn__flex-column flomo-web${tabClass}"${immersiveAttr}>
     <div class="block__icons">
         <div class="block__logo fn__flex-1">
             <svg class="block__logoicon"><use xlink:href="#iconFlomoWeb"></use></svg>${i18n.dockTitle}

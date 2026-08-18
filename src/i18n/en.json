@@ -7,5 +7,7 @@
   "goBack": "Back",
   "goForward": "Forward",
   "devTools": "DevTools",
-  "min": "Min"
+  "min": "Min",
+  "immersiveTab": "Immersive tab",
+  "immersiveTabDesc": "Hide the toolbar inside tabs so the web page fills the tab."
 }
