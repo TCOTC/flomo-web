@@ -39,6 +39,61 @@ function flomoInjectMain() {
         );
     }
 
+    const TRAILING_PUNCT = /[.,;:!?，。；：！？、)）\]】]+$/;
+
+    function siyuanTagSpan(name: string): string {
+        return `<span data-type="tag">${escapeHtml(name)}</span>`;
+    }
+
+    /** 去掉首尾 `#`，得到 flomo / 思源标签名 */
+    function unwrapTagName(raw: string): string {
+        let name = raw.trim();
+        if (name.charAt(0) === "#") {
+            name = name.slice(1);
+        }
+        if (name.charAt(name.length - 1) === "#") {
+            name = name.slice(0, -1);
+        }
+        return name.replace(TRAILING_PUNCT, "").trim();
+    }
+
+    /** 整段文本若是一个 flomo 标签（`#foo` / `#foo/bar`），返回标签名 */
+    function parseFlomoTagName(raw: string): string {
+        const text = raw.trim();
+        if (!/^#[^#\s]+#?$/.test(text)) {
+            return "";
+        }
+        return unwrapTagName(text);
+    }
+
+    /** 把文本里的 `#标签` 转成思源 `<span data-type="tag">`，其余做 HTML 转义 */
+    function convertFlomoTagsInText(text: string): string {
+        let result = "";
+        const re = /#([^#\s]+)(#)?/g;
+        let last = 0;
+        let match: RegExpExecArray | null;
+        while ((match = re.exec(text)) !== null) {
+            result += escapeHtml(text.slice(last, match.index));
+            let name = match[1];
+            let tail = "";
+            if (!match[2]) {
+                const punct = name.match(TRAILING_PUNCT);
+                if (punct) {
+                    tail = punct[0];
+                    name = name.slice(0, name.length - tail.length);
+                }
+            }
+            if (!name) {
+                result += escapeHtml(match[0]);
+            } else {
+                result += siyuanTagSpan(name) + escapeHtml(tail);
+            }
+            last = re.lastIndex;
+        }
+        result += escapeHtml(text.slice(last));
+        return result;
+    }
+
     /** 将 flomo 卡片 HTML 转为思源可插入的段落块（`<br>` / 块级换行都会分段） */
     function htmlToSiYuanBlocks(root: ParentNode, extraImageSrcs: string[]): string {
         const blocks: string[] = [];
@@ -65,7 +120,7 @@ function flomoInjectMain() {
 
         function walk(node: Node) {
             if (node.nodeType === Node.TEXT_NODE) {
-                buffer += escapeHtml(node.textContent || "");
+                buffer += convertFlomoTagsInText(node.textContent || "");
                 return;
             }
             if (node.nodeType !== Node.ELEMENT_NODE) {
@@ -85,8 +140,9 @@ function flomoInjectMain() {
             if (tag === "A") {
                 const text = el.textContent || "";
                 const href = el.getAttribute("href") || "";
-                if (text.trim().indexOf("#") === 0) {
-                    buffer += escapeHtml(text);
+                const tagName = parseFlomoTagName(text);
+                if (tagName) {
+                    buffer += siyuanTagSpan(tagName);
                     return;
                 }
                 if (!href) {
@@ -98,6 +154,16 @@ function flomoInjectMain() {
                 const inner = buffer.slice(start);
                 buffer = `${buffer.slice(0, start)}<a href="${escapeAttr(href)}">${inner}</a>`;
                 return;
+            }
+            if (tag === "SPAN") {
+                const cls = typeof el.className === "string" ? el.className : "";
+                if (/\btag\b/i.test(cls)) {
+                    const tagName = parseFlomoTagName(el.textContent || "") || unwrapTagName(el.textContent || "");
+                    if (tagName) {
+                        buffer += siyuanTagSpan(tagName);
+                        return;
+                    }
+                }
             }
             if (tag === "STRONG" || tag === "B") {
                 const start = buffer.length;
@@ -139,6 +205,7 @@ function flomoInjectMain() {
 
     function htmlToPlain(html: string): string {
         return html
+            .replace(/<span[^>]*data-type=["']tag["'][^>]*>([\s\S]*?)<\/span>/gi, "#$1#")
             .replace(/<p><img[^>]*src="([^"]*)"[^>]*><\/p>/gi, "![]($1)\n\n")
             .replace(/<\/p>\s*<p>/gi, "\n\n")
             .replace(/<[^>]+>/g, "")
