@@ -12,7 +12,8 @@ function flomoInjectMain() {
     w.__flomoWebInjected = true;
 
     const MEMO_SELECTOR = ".memo";
-    const CONTENT_SELECTORS = [".mainContent", ".content"];
+    /** 只取正文，避免 .mainContent 里的相关卡片 / 页头工具栏 */
+    const CONTENT_SELECTORS = [".richText", ".content"];
 
     function escapeHtml(text: string): string {
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -49,6 +50,9 @@ function flomoInjectMain() {
     function unwrapTagName(raw: string): string {
         let name = raw.trim();
         if (name.charAt(0) === "#") {
+            if (/^#\s/.test(name)) {
+                return "";
+            }
             name = name.slice(1);
         }
         if (name.charAt(name.length - 1) === "#") {
@@ -57,7 +61,7 @@ function flomoInjectMain() {
         return name.replace(TRAILING_PUNCT, "").trim();
     }
 
-    /** 整段文本若是一个 flomo 标签（`#foo` / `#foo/bar`），返回标签名 */
+    /** 整段文本若是一个 flomo 标签（`#foo` / `#foo/bar`，`#` 后不能有空格），返回标签名 */
     function parseFlomoTagName(raw: string): string {
         const text = raw.trim();
         if (!/^#[^#\s]+#?$/.test(text)) {
@@ -118,6 +122,43 @@ function flomoInjectMain() {
             blocks.push(`<p><img src="${escapeAttr(src)}"></p>`);
         }
 
+        function isSkippedEl(el: HTMLElement): boolean {
+            const name = el.tagName;
+            if (
+                name === "SVG" ||
+                name === "PATH" ||
+                name === "USE" ||
+                name === "G" ||
+                name === "DEFS" ||
+                name === "CLIPPATH" ||
+                name === "RECT" ||
+                name === "CIRCLE" ||
+                name === "BUTTON" ||
+                name === "SCRIPT" ||
+                name === "STYLE"
+            ) {
+                return true;
+            }
+            const cls = typeof el.className === "string" ? el.className : "";
+            return /\b(related|header|tools|placeholder|base-menu-wrapper|memo-insight-entry|menu-trigger|memo-header-status)\b/
+                .test(
+                    cls,
+                );
+        }
+
+        function absUrl(href: string): string {
+            if (!href) {
+                return "";
+            }
+            if (/^https?:\/\//i.test(href)) {
+                return href;
+            }
+            if (href.charAt(0) === "/") {
+                return "https://v.flomoapp.com" + href;
+            }
+            return href;
+        }
+
         function walk(node: Node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 buffer += convertFlomoTagsInText(node.textContent || "");
@@ -127,6 +168,9 @@ function flomoInjectMain() {
                 return;
             }
             const el = node as HTMLElement;
+            if (isSkippedEl(el)) {
+                return;
+            }
             const tag = el.tagName;
 
             if (tag === "BR") {
@@ -138,9 +182,18 @@ function flomoInjectMain() {
                 return;
             }
             if (tag === "A") {
-                const text = el.textContent || "";
-                const href = el.getAttribute("href") || "";
-                const tagName = parseFlomoTagName(text);
+                const href = absUrl(el.getAttribute("href") || "");
+                const cls = typeof el.className === "string" ? el.className : "";
+                if (/\binner_memo_link\b/.test(cls)) {
+                    if (href) {
+                        const wrapped = buffer.match(/^(.*?)([^\s<>]+)(\s*)$/);
+                        if (wrapped && wrapped[2]) {
+                            buffer = `${wrapped[1]}<a href="${escapeAttr(href)}">${wrapped[2]}</a>${wrapped[3]}`;
+                        }
+                    }
+                    return;
+                }
+                const tagName = parseFlomoTagName(el.textContent || "");
                 if (tagName) {
                     buffer += siyuanTagSpan(tagName);
                     return;
@@ -151,7 +204,10 @@ function flomoInjectMain() {
                 }
                 const start = buffer.length;
                 el.childNodes.forEach(walk);
-                const inner = buffer.slice(start);
+                let inner = buffer.slice(start).replace(/^\s+|\s+$/g, "");
+                if (!inner) {
+                    inner = escapeHtml(href);
+                }
                 buffer = `${buffer.slice(0, start)}<a href="${escapeAttr(href)}">${inner}</a>`;
                 return;
             }
@@ -185,7 +241,12 @@ function flomoInjectMain() {
             }
             if (tag === "UL" || tag === "OL" || tag === "PRE" || tag === "TABLE") {
                 flush();
-                blocks.push(el.outerHTML);
+                if (tag === "PRE" || tag === "TABLE") {
+                    blocks.push(el.outerHTML);
+                } else {
+                    el.childNodes.forEach(walk);
+                }
+                flush();
                 return;
             }
             if (isBlockTag(tag)) {
@@ -228,7 +289,10 @@ function flomoInjectMain() {
     }
 
     function getFileImages(memo: Element): string[] {
-        const files = memo.querySelector(".files") || memo;
+        const files = memo.querySelector(".files");
+        if (!files) {
+            return [];
+        }
         const srcs: string[] = [];
         files.querySelectorAll("img").forEach((img) => {
             const src = img.getAttribute("src");
@@ -276,11 +340,11 @@ function flomoInjectMain() {
 .memo {
     cursor: grab;
 }
-.memo .input-box {
-    cursor: auto;
-}
 .memo:active {
     cursor: grabbing;
+}
+.memo .input-box {
+    cursor: auto;
 }
 `;
     document.documentElement.appendChild(style);
