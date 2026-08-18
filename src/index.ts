@@ -35,14 +35,7 @@ export default class FlomoWebPlugin extends Plugin {
         registerFlomoTab(this);
         this.unbindLinkClicks = bindFlomoLinkClicks(this);
         this.setupSetting();
-        this.loadData(STORAGE_NAME).then((data) => {
-            this.config = normalizeConfig(data);
-            applyImmersiveTab(this.config.immersiveTab);
-        }).catch((e) => {
-            const errorMessage = `${this.displayName}: failed to load data [${STORAGE_NAME}]: ${e.msg || e}`;
-            showMessage(errorMessage);
-            console.error(errorMessage);
-        });
+        this.loadConfig();
         console.log(this.displayName, "plugin loaded");
     }
 
@@ -71,6 +64,11 @@ export default class FlomoWebPlugin extends Plugin {
         console.log(this.displayName, "plugin unloaded");
     }
 
+    /** 存储数据变更（如同步）。覆盖默认实现，避免整插件重载导致页签抖动 */
+    onDataChanged() {
+        this.loadConfig();
+    }
+
     uninstall() {
         try {
             const remote = (window as any).require?.("@electron/remote");
@@ -86,6 +84,17 @@ export default class FlomoWebPlugin extends Plugin {
             console.error(errorMessage);
         });
         console.log(this.displayName, "plugin uninstalled");
+    }
+
+    private loadConfig() {
+        this.loadData(STORAGE_NAME).then((data) => {
+            this.config = normalizeConfig(data);
+            applyImmersiveTab(this.config.immersiveTab);
+        }).catch((e) => {
+            const errorMessage = `${this.displayName}: failed to load data [${STORAGE_NAME}]: ${e.msg || e}`;
+            showMessage(errorMessage);
+            console.error(errorMessage);
+        });
     }
 
     private setupSetting() {
