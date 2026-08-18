@@ -1,5 +1,6 @@
 {
   "dockTitle": "flomo",
+  "openTab": "Open flomo",
   "desktopOnly": "This environment cannot embed the flomo web app (desktop app required). Use SiYuan on Windows, macOS, or Linux.",
   "home": "Home",
   "refresh": "Refresh",

@@ -8,12 +8,12 @@
   "frontends": ["desktop", "desktop-window"],
   "disabledInPublish": true,
   "displayName": {
-    "default": "flomo Dock",
-    "zh-CN": "flomo 停靠栏"
+    "default": "flomo Web",
+    "zh-CN": "flomo 浮墨笔记网页版"
   },
   "description": {
-    "default": "Show flomo in a dock and drag cards into SiYuan as blocks. Line breaks become separate paragraphs.",
-    "zh-CN": "在停靠栏中打开 flomo 网页，将卡片拖进思源即可插入块；换行会拆成独立段落。"
+    "default": "Open flomo in a tab or dock.",
+    "zh-CN": "在页签或停靠栏中打开 flomo 网页。"
   },
   "readme": {
     "default": "README.md",
