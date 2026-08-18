@@ -1,2 +1,10 @@
 {
+  "dockTitle": "flomo",
+  "desktopOnly": "当前环境无法嵌入 flomo 网页（需要桌面端）。请在 Windows / macOS / Linux 的思源桌面应用中使用本插件。",
+  "home": "回到首页",
+  "refresh": "刷新",
+  "goBack": "后退",
+  "goForward": "前进",
+  "devTools": "开发者工具",
+  "min": "最小化"
 }

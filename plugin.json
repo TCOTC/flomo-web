@@ -4,32 +4,16 @@
   "url": "https://github.com/TCOTC/flomo-web",
   "version": "1.0.0",
   "minAppVersion": "3.7.0",
-  "backends": [
-    "windows",
-    "linux",
-    "darwin",
-    "ios",
-    "android",
-    "harmony",
-    "docker",
-    "all"
-  ],
-  "frontends": [
-    "desktop",
-    "mobile",
-    "browser-desktop",
-    "browser-mobile",
-    "desktop-window",
-    "all"
-  ],
-  "disabledInPublish": false,
+  "backends": ["windows", "linux", "darwin"],
+  "frontends": ["desktop", "desktop-window"],
+  "disabledInPublish": true,
   "displayName": {
-    "default": "Plugin Name",
-    "zh-CN": "插件名称"
+    "default": "flomo Dock",
+    "zh-CN": "flomo 停靠栏"
   },
   "description": {
-    "default": "Plugin Description",
-    "zh-CN": "插件描述"
+    "default": "Show flomo in a dock and drag cards into SiYuan as blocks. Line breaks become separate paragraphs.",
+    "zh-CN": "在停靠栏中打开 flomo 网页，将卡片拖进思源即可插入块；换行会拆成独立段落。"
   },
   "readme": {
     "default": "README.md",
