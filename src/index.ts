@@ -158,6 +158,7 @@ export default class FlomoWebPlugin extends Plugin {
             },
         });
         this.addSwitch(this.i18n.immersiveTab, this.i18n.immersiveTabDesc, "immersiveTab", takeDraft);
+        this.addSwitch(this.i18n.immersiveDock, this.i18n.immersiveDockDesc, "immersiveDock", takeDraft);
         this.addSwitch(this.i18n.interceptEditorFlomoLinks, this.i18n.interceptEditorFlomoLinksDesc, "interceptEditorFlomoLinks", takeDraft);
         this.addSwitch(this.i18n.showDevToolsButton, this.i18n.showDevToolsButtonDesc, "showDevToolsButton", takeDraft);
     }

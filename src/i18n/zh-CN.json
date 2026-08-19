@@ -9,6 +9,8 @@
   "min": "最小化",
   "immersiveTab": "沉浸页签",
   "immersiveTabDesc": "隐藏页签内的工具栏，让网页铺满页签。",
+  "immersiveDock": "沉浸停靠栏",
+  "immersiveDockDesc": "隐藏停靠栏内的工具栏，让网页铺满停靠栏。",
   "interceptEditorFlomoLinks": "拦截编辑器 flomo 链接",
   "interceptEditorFlomoLinksDesc": "在编辑器中左键点击 flomo 链接时，用插件页签打开。",
   "showDevToolsButton": "显示开发者工具按钮",

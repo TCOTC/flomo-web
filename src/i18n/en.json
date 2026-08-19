@@ -9,6 +9,8 @@
   "min": "Min",
   "immersiveTab": "Immersive tab",
   "immersiveTabDesc": "Hide the toolbar inside tabs so the web page fills the tab.",
+  "immersiveDock": "Immersive dock",
+  "immersiveDockDesc": "Hide the toolbar inside the dock so the web page fills the dock.",
   "interceptEditorFlomoLinks": "Intercept editor flomo links",
   "interceptEditorFlomoLinksDesc": "Left-clicking a flomo link in the editor opens it in a plugin tab.",
   "showDevToolsButton": "Show DevTools button",
