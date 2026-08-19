@@ -7,12 +7,18 @@ import {
     unregisterConfigPanel,
 } from "./config";
 import type zhCN from "./i18n/zh-CN.json";
-import {getFlomoInjectScript, GUEST_OPEN_PREFIX} from "./inject";
+import {
+    getFlomoInjectScript,
+    GUEST_OPEN_PREFIX,
+} from "./inject";
+import {
+    ensureSession,
+    getWebviewPartition,
+} from "./session";
 
 export const FLOMO_URL = "https://v.flomoapp.com";
 export const DOCK_TYPE = "flomo";
 export const TAB_TYPE = "tab";
-export const WEBVIEW_PARTITION = "persist:flomo-web";
 
 export type FlomoPlugin = Plugin & {i18n: typeof zhCN;};
 
@@ -385,10 +391,10 @@ function routeGuestUrl(view: WebviewEl, raw: string) {
 function webviewMarkup(src?: string): string {
     const srcAttr = src ? ` src="${escapeAttr(src)}"` : "";
     const tools = getConfig().showDevToolsButton;
-    const toolsAttr = tools
-        ? ` ${ATTR_DEVTOOLS}="1"`
-        : ` ${ATTR_DEVTOOLS}="0" webpreferences="devTools=no"`;
-    return `<webview class="flomo-web__webview"${srcAttr} partition="${WEBVIEW_PARTITION}"${toolsAttr}></webview>`;
+    const toolsAttr = tools ?
+        ` ${ATTR_DEVTOOLS}="1"` :
+        ` ${ATTR_DEVTOOLS}="0" webpreferences="devTools=no"`;
+    return `<webview class="flomo-web__webview"${srcAttr} partition="${getWebviewPartition()}"${toolsAttr}></webview>`;
 }
 
 type MainDevtoolsHook = {
@@ -536,7 +542,7 @@ function bindGuestNavigateGuard(view: WebviewEl): () => void {
     };
 }
 
-export function mountFlomoPanel(options: {
+type MountFlomoPanelOptions = {
     root: HTMLElement;
     plugin: FlomoPlugin;
     url: string;
@@ -544,7 +550,27 @@ export function mountFlomoPanel(options: {
     isTab?: boolean;
     onTitle?: (title: string) => void;
     onUrl?: (url: string) => void;
-}): () => void {
+};
+
+/** 等本工作空间 session ID 就绪再挂 webview；卸载时作废尚未完成的挂载 */
+export function mountFlomoPanelWhenReady(options: MountFlomoPanelOptions): () => void {
+    let cancelled = false;
+    let unmount: (() => void) | undefined;
+    void ensureSession(options.plugin).then(() => {
+        if (cancelled) {
+            return;
+        }
+        unmount = mountFlomoPanel(options);
+    }).catch((e) => {
+        console.error(`${options.plugin.displayName}: failed to prepare flomo session`, e);
+    });
+    return () => {
+        cancelled = true;
+        unmount?.();
+    };
+}
+
+export function mountFlomoPanel(options: MountFlomoPanelOptions): () => void {
     const {root, plugin, showMin} = options;
     const i18n = plugin.i18n;
     const cleanups: Array<() => void> = [];

@@ -2,7 +2,7 @@ import {
     DOCK_TYPE,
     FLOMO_URL,
     type FlomoPlugin,
-    mountFlomoPanel,
+    mountFlomoPanelWhenReady,
     runPanelUnmount,
     setPanelUnmount,
 } from "./view";
@@ -21,7 +21,7 @@ export function registerFlomoDock(plugin: FlomoPlugin) {
             const root = this.element as HTMLElement;
             setPanelUnmount(
                 root,
-                mountFlomoPanel({
+                mountFlomoPanelWhenReady({
                     root,
                     plugin,
                     url: FLOMO_URL,

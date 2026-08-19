@@ -5,7 +5,7 @@ import {
 import {
     FLOMO_URL,
     type FlomoPlugin,
-    mountFlomoPanel,
+    mountFlomoPanelWhenReady,
     parseFlomoUrl,
     runPanelUnmount,
     setPanelUnmount,
@@ -26,7 +26,7 @@ function mountCustom(custom: Custom, plugin: FlomoPlugin) {
     const url = custom.data?.url || FLOMO_URL;
     setPanelUnmount(
         custom.element,
-        mountFlomoPanel({
+        mountFlomoPanelWhenReady({
             root: custom.element as HTMLElement,
             plugin,
             url,
@@ -134,9 +134,9 @@ export function bindFlomoLinkClicks(plugin: FlomoPlugin): () => void {
         if (event.button !== 0 || event.defaultPrevented) {
             return;
         }
-        const el = event.target instanceof Element
-            ? event.target
-            : (event.target as Node | null)?.parentElement;
+        const el = event.target instanceof Element ?
+            event.target :
+            (event.target as Node | null)?.parentElement;
         const inEditor = el?.closest(".protyle-wysiwyg, .protyle-preview, .b3-typography");
         if (!inEditor) {
             return;

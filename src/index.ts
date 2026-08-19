@@ -16,6 +16,13 @@ import type zhCN from "./i18n/zh-CN.json";
 import "./index.scss";
 import {bindFlomoPaste} from "./paste";
 import {
+    ensureSession,
+    parseSessionId,
+    peekSessionPartition,
+    sessionPartition,
+    STORAGE_SESSION,
+} from "./session";
+import {
     bindFlomoLinkClicks,
     emptyOpenFlomoTabs,
     hydrateOpenFlomoTabs,
@@ -25,7 +32,6 @@ import {
 import {
     disposeFlomoCovers,
     disposeGuestDevtoolsHook,
-    WEBVIEW_PARTITION,
 } from "./view";
 
 // flomo 官方图形标路径，停靠栏用 currentColor 跟随主题
@@ -42,6 +48,7 @@ export default class FlomoWebPlugin extends Plugin {
 
     onload() {
         this.addIcons(ICON_SVG);
+        void ensureSession(this);
         registerFlomoDock(this);
         registerFlomoTab(this);
         hydrateOpenFlomoTabs(this);
@@ -95,21 +102,45 @@ export default class FlomoWebPlugin extends Plugin {
     }
 
     uninstall() {
-        try {
-            const remote = (window as any).require?.("@electron/remote");
-            remote?.session?.fromPartition(WEBVIEW_PARTITION)?.clearStorageData?.();
-        } catch (e) {
-            console.error(`${this.displayName}: failed to clear flomo session`, e);
-        }
-        this.removeData(STORAGE_NAME).catch((e) => {
-            const errorMessage = `${this.displayName}: failed to uninstall remove data [${STORAGE_NAME}]: ${
-                e.msg || e
-            }`;
-            showMessage(errorMessage);
-            console.error(errorMessage);
-        });
+        void this.clearFlomoSession();
 
         console.log(this.displayName, "plugin uninstalled");
+    }
+
+    /** 先读到当前工作空间的 partition 再清 cookie，避免删文件后找不到桶 */
+    private async clearFlomoSession() {
+        let partition = peekSessionPartition();
+        if (!partition) {
+            try {
+                const sid = parseSessionId(await this.loadData(STORAGE_SESSION));
+                if (sid) {
+                    partition = sessionPartition(sid);
+                }
+            } catch (e) {
+                const errorMessage = `${this.displayName}: failed to load data [${STORAGE_SESSION}]: ${
+                    (e as {msg?: string;}).msg || e
+                }`;
+                showMessage(errorMessage);
+                console.error(errorMessage);
+            }
+        }
+        if (partition) {
+            try {
+                const remote = (window as any).require?.("@electron/remote");
+                remote?.session?.fromPartition(partition)?.clearStorageData?.();
+            } catch (e) {
+                console.error(`${this.displayName}: failed to clear flomo session`, e);
+            }
+        }
+        const remove = (name: string) => {
+            this.removeData(name).catch((e) => {
+                const errorMessage = `${this.displayName}: failed to uninstall remove data [${name}]: ${e.msg || e}`;
+                showMessage(errorMessage);
+                console.error(errorMessage);
+            });
+        };
+        remove(STORAGE_SESSION);
+        remove(STORAGE_NAME);
     }
 
     private loadConfig() {
@@ -161,7 +192,12 @@ export default class FlomoWebPlugin extends Plugin {
         });
         this.addSwitch(this.i18n.immersiveTab, this.i18n.immersiveTabDesc, "immersiveTab", takeDraft);
         this.addSwitch(this.i18n.immersiveDock, this.i18n.immersiveDockDesc, "immersiveDock", takeDraft);
-        this.addSwitch(this.i18n.interceptEditorFlomoLinks, this.i18n.interceptEditorFlomoLinksDesc, "interceptEditorFlomoLinks", takeDraft);
+        this.addSwitch(
+            this.i18n.interceptEditorFlomoLinks,
+            this.i18n.interceptEditorFlomoLinksDesc,
+            "interceptEditorFlomoLinks",
+            takeDraft,
+        );
         this.addSwitch(this.i18n.showDevToolsButton, this.i18n.showDevToolsButtonDesc, "showDevToolsButton", takeDraft);
     }
 
