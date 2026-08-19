@@ -3,12 +3,15 @@ export const STORAGE_NAME = "config.json";
 export interface FlomoConfig {
     /** 隐藏页签内的工具栏，让网页铺满页签 */
     immersiveTab: boolean;
+    /** 拦截编辑器中的 flomo 链接，用插件页签打开 */
+    interceptEditorFlomoLinks: boolean;
     /** 在工具栏显示开发者工具按钮 */
     showDevToolsButton: boolean;
 }
 
 export const DEFAULT_CONFIG: FlomoConfig = {
     immersiveTab: true,
+    interceptEditorFlomoLinks: true,
     showDevToolsButton: false,
 };
 
@@ -26,6 +29,7 @@ export function normalizeConfig(data: unknown): FlomoConfig {
     const raw = data && typeof data === "object" ? data as Record<string, unknown> : {};
     return {
         immersiveTab: asBoolean(raw.immersiveTab, DEFAULT_CONFIG.immersiveTab),
+        interceptEditorFlomoLinks: asBoolean(raw.interceptEditorFlomoLinks, DEFAULT_CONFIG.interceptEditorFlomoLinks),
         showDevToolsButton: asBoolean(raw.showDevToolsButton, DEFAULT_CONFIG.showDevToolsButton),
     };
 }

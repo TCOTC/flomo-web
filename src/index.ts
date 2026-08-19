@@ -44,7 +44,7 @@ export default class FlomoWebPlugin extends Plugin {
         registerFlomoDock(this);
         registerFlomoTab(this);
         hydrateOpenFlomoTabs(this);
-        this.unbindLinkClicks = bindFlomoLinkClicks(this);
+        this.syncLinkClicks();
         this.unbindPaste = bindFlomoPaste(this);
         this.setupSetting();
         this.loadConfig();
@@ -118,6 +118,7 @@ export default class FlomoWebPlugin extends Plugin {
             }
             this.config = normalizeConfig(data);
             applyConfig(this.config);
+            this.syncLinkClicks();
         }).catch((e) => {
             if (ticket !== this.configTicket) {
                 return;
@@ -148,6 +149,7 @@ export default class FlomoWebPlugin extends Plugin {
                 }
                 this.config = {...draft};
                 applyConfig(this.config);
+                this.syncLinkClicks();
                 this.saveData(STORAGE_NAME, this.config).catch((e) => {
                     const errorMessage = `${this.displayName}: failed to save data [${STORAGE_NAME}]: ${e.msg || e}`;
                     showMessage(errorMessage);
@@ -156,7 +158,20 @@ export default class FlomoWebPlugin extends Plugin {
             },
         });
         this.addSwitch(this.i18n.immersiveTab, this.i18n.immersiveTabDesc, "immersiveTab", takeDraft);
+        this.addSwitch(this.i18n.interceptEditorFlomoLinks, this.i18n.interceptEditorFlomoLinksDesc, "interceptEditorFlomoLinks", takeDraft);
         this.addSwitch(this.i18n.showDevToolsButton, this.i18n.showDevToolsButtonDesc, "showDevToolsButton", takeDraft);
+    }
+
+    /** 仅在配置启用时挂上编辑器 flomo 链接的捕获监听 */
+    private syncLinkClicks() {
+        if (this.config.interceptEditorFlomoLinks) {
+            if (!this.unbindLinkClicks) {
+                this.unbindLinkClicks = bindFlomoLinkClicks(this);
+            }
+            return;
+        }
+        this.unbindLinkClicks?.();
+        this.unbindLinkClicks = undefined;
     }
 
     private addSwitch(
