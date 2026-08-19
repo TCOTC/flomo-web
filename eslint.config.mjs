@@ -20,6 +20,7 @@ export default [
             "dist",
             "node_modules",
             "index.js",
+            "devtools-hook.cjs",
         ],
     },
     ...compat.extends("eslint:recommended", "plugin:@typescript-eslint/recommended"),

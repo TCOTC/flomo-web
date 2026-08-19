@@ -20,6 +20,8 @@ export const DEFAULT_CONFIG: FlomoConfig = {
 
 const CLS_IMMERSIVE = "flomo-web--immersive";
 const CLS_SHOW_DEVTOOLS = "flomo-web--show-devtools";
+/** 标记当前 guest 是否按“显示开发者工具按钮”创建；不读 webpreferences 属性，Electron 解析后可能丢掉它 */
+export const ATTR_DEVTOOLS = "data-flomo-devtools";
 
 let current: FlomoConfig = {...DEFAULT_CONFIG};
 const panels = new Set<HTMLElement>();
@@ -44,6 +46,10 @@ function paintPanel(panel: HTMLElement) {
         : current.immersiveDock;
     panel.classList.toggle(CLS_IMMERSIVE, immersive);
     panel.classList.toggle(CLS_SHOW_DEVTOOLS, current.showDevToolsButton);
+    const view = panel.querySelector("webview.flomo-web__webview");
+    if (view && (view.getAttribute(ATTR_DEVTOOLS) === "1") !== current.showDevToolsButton) {
+        panel.dispatchEvent(new Event("flomo-web-devtools-pref"));
+    }
 }
 
 export function registerConfigPanel(panel: HTMLElement) {
@@ -58,6 +64,10 @@ export function unregisterConfigPanel(panel: HTMLElement) {
 export function applyConfig(config: FlomoConfig) {
     current = {...config};
     panels.forEach(paintPanel);
+}
+
+export function getConfig(): FlomoConfig {
+    return current;
 }
 
 export function clearConfigPanels() {

@@ -24,6 +24,7 @@ import {
 } from "./tab";
 import {
     disposeFlomoCovers,
+    disposeGuestDevtoolsHook,
     WEBVIEW_PARTITION,
 } from "./view";
 
@@ -88,6 +89,7 @@ export default class FlomoWebPlugin extends Plugin {
         emptyOpenFlomoTabs(this);
         disposeFlomoCovers();
         clearConfigPanels();
+        disposeGuestDevtoolsHook();
 
         console.log(this.displayName, "plugin unloaded");
     }

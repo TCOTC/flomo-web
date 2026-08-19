@@ -1,6 +1,8 @@
 import {adaptHotkey} from "siyuan";
 import type {Plugin} from "siyuan";
 import {
+    ATTR_DEVTOOLS,
+    getConfig,
     registerConfigPanel,
     unregisterConfigPanel,
 } from "./config";
@@ -48,6 +50,7 @@ type ElectronRemote = {
     webContents?: {
         fromId?: (id: number) => GuestWebContents | undefined;
     };
+    require?: (modulePath: string) => unknown;
 };
 
 export function findFlomoWebviews(): WebviewEl[] {
@@ -351,6 +354,11 @@ const HEADER_ACTIONS: Record<string, (view: WebviewEl) => void> = {
         }
     },
     devtools: (view) => {
+        try {
+            mainDevtoolsHook?.allowGuestDevTools?.();
+        } catch {
+            // 挂钩尚未加载时仍打开网页开发者工具
+        }
         if (view.isDevToolsOpened()) {
             view.closeDevTools();
         } else {
@@ -368,6 +376,98 @@ function routeGuestUrl(view: WebviewEl, raw: string) {
     if (isHttpUrl(raw)) {
         openBySiyuan(raw);
     }
+}
+
+/**
+ * 用 HTML 一次写好 partition 与 webpreferences。
+ * 若用 createElement 先写 src 再入树，guest 可能已按默认偏好创建，关掉开发者工具不会生效。
+ */
+function webviewMarkup(src?: string): string {
+    const srcAttr = src ? ` src="${escapeAttr(src)}"` : "";
+    const tools = getConfig().showDevToolsButton;
+    const toolsAttr = tools
+        ? ` ${ATTR_DEVTOOLS}="1"`
+        : ` ${ATTR_DEVTOOLS}="0" webpreferences="devTools=no"`;
+    return `<webview class="flomo-web__webview"${srcAttr} partition="${WEBVIEW_PARTITION}"${toolsAttr}></webview>`;
+}
+
+type MainDevtoolsHook = {
+    hook: (id: number) => void;
+    unhook: (id: number) => void;
+    unhookAll: () => void;
+    allowGuestDevTools?: () => void;
+};
+
+/** undefined 尚未尝试；null 加载失败 */
+let mainDevtoolsHook: MainDevtoolsHook | null | undefined;
+
+function loadMainDevtoolsHook(pluginName: string): MainDevtoolsHook | null {
+    if (mainDevtoolsHook !== undefined) {
+        return mainDevtoolsHook;
+    }
+    try {
+        const req = (window as any).require as ((id: string) => any) | undefined;
+        const remote = req?.("@electron/remote") as ElectronRemote | undefined;
+        const nodePath = req?.("path") as {join: (...parts: string[]) => string;} | undefined;
+        const dataDir = (window as any).siyuan?.config?.system?.dataDir as string | undefined;
+        if (!remote?.require || !nodePath?.join || !dataDir || !pluginName) {
+            mainDevtoolsHook = null;
+            return null;
+        }
+        const file = nodePath.join(dataDir, "plugins", pluginName, "devtools-hook.cjs");
+        mainDevtoolsHook = remote.require(file) as MainDevtoolsHook;
+        return mainDevtoolsHook;
+    } catch (e) {
+        console.error("flomo-web: load main devtools hook failed", e);
+        mainDevtoolsHook = null;
+        return null;
+    }
+}
+
+function guestContentsId(view: WebviewEl): number {
+    if (!webviewGuestReady(view)) {
+        return 0;
+    }
+    try {
+        return view.getWebContentsId();
+    } catch {
+        return 0;
+    }
+}
+
+/** 插件卸载时拆掉主进程 before-input-event；模块本身会留在 remote.require 缓存里 */
+export function disposeGuestDevtoolsHook() {
+    try {
+        mainDevtoolsHook?.unhookAll();
+    } catch (e) {
+        console.error("flomo-web: unhook guest devtools failed", e);
+    }
+}
+
+/**
+ * Chromium 会把开发者工具快捷键交给 webview，宿主收不到。
+ * 必须在主进程 preventDefault，再打开思源窗口的开发者工具。
+ */
+function bindGuestDevToolsKeys(view: WebviewEl, pluginName: string): () => void {
+    const hook = loadMainDevtoolsHook(pluginName);
+    const id = guestContentsId(view);
+    if (hook && id) {
+        try {
+            hook.hook(id);
+        } catch (e) {
+            console.error("flomo-web: hook guest devtools failed", e);
+        }
+    }
+    return () => {
+        // 关页签时思源会先拆 DOM，getWebContentsId 会失败，必须用 hook 时记下的 id
+        if (hook && id) {
+            try {
+                hook.unhook(id);
+            } catch {
+                return;
+            }
+        }
+    };
 }
 
 function bindGuestWindowOpen(view: WebviewEl): boolean {
@@ -448,6 +548,7 @@ export function mountFlomoPanel(options: {
     const {root, plugin, showMin} = options;
     const i18n = plugin.i18n;
     const cleanups: Array<() => void> = [];
+    const viewCleanups: Array<() => void> = [];
     let webview: WebviewEl | null = null;
     const tabClass = options.isTab ? " flomo-web--tab" : "";
 
@@ -478,7 +579,7 @@ export function mountFlomoPanel(options: {
         ${actionIcons.join("")}
     </div>
     <div class="fn__flex-1 flomo-web__stage">
-        <webview class="flomo-web__webview" src="${escapeAttr(startSrc)}" partition="${WEBVIEW_PARTITION}"></webview>
+        ${webviewMarkup(startSrc)}
         <div class="flomo-web__cover fn__none"></div>
     </div>
 </div>`;
@@ -487,7 +588,11 @@ export function mountFlomoPanel(options: {
     const panel = root.querySelector(".flomo-web") as HTMLElement | null;
     if (panel) {
         registerConfigPanel(panel);
-        cleanups.push(() => unregisterConfigPanel(panel));
+        panel.addEventListener("flomo-web-devtools-pref", replaceGuest);
+        cleanups.push(() => {
+            panel.removeEventListener("flomo-web-devtools-pref", replaceGuest);
+            unregisterConfigPanel(panel);
+        });
     }
     bindHeader(root);
     bindWebview();
@@ -495,6 +600,49 @@ export function mountFlomoPanel(options: {
     acquireThemeWatch();
     cleanups.push(releaseCover);
     cleanups.push(releaseThemeWatch);
+
+    function guestSrc(): string {
+        if (webview && webviewGuestReady(webview)) {
+            try {
+                const href = webview.getURL();
+                return parseFlomoUrl(href) || href || startSrc;
+            } catch {
+                return webview.src || startSrc;
+            }
+        }
+        return webview?.src || startSrc;
+    }
+
+    function unbindWebview() {
+        viewCleanups.forEach((fn) => fn());
+        viewCleanups.length = 0;
+    }
+
+    function replaceGuest() {
+        const stage = root.querySelector(".flomo-web__stage");
+        if (!stage) {
+            return;
+        }
+        const src = guestSrc();
+        unbindWebview();
+        if (webview) {
+            teardownWebview(webview);
+            webview = null;
+        }
+        const cover = stage.querySelector(".flomo-web__cover");
+        if (cover) {
+            cover.insertAdjacentHTML("beforebegin", webviewMarkup());
+            webview = cover.previousElementSibling as WebviewEl;
+        } else {
+            stage.insertAdjacentHTML("beforeend", webviewMarkup());
+            webview = stage.querySelector("webview.flomo-web__webview") as WebviewEl;
+        }
+        // 先绑事件再设 src：分区已热时入树可能马上发出 did-attach，设完再听会漏掉快捷键
+        bindWebview();
+        if (webview) {
+            webview.src = src;
+        }
+    }
 
     function bindHeader(host: HTMLElement) {
         const icons = host.querySelector(".block__icons");
@@ -525,11 +673,18 @@ export function mountFlomoPanel(options: {
         }
         let navigated = false;
         const onReady = () => {
+            if (!webviewGuestReady(view)) {
+                return;
+            }
             bindGuestWindowOpen(view);
             if (!navigated) {
+                if (!guestWebContentsOf(view)?.on) {
+                    return;
+                }
                 navigated = true;
-                cleanups.push(bindGuestNavigateGuard(view));
-                cleanups.push(bindGuestConsoleOpen(view));
+                viewCleanups.push(bindGuestNavigateGuard(view));
+                viewCleanups.push(bindGuestConsoleOpen(view));
+                viewCleanups.push(bindGuestDevToolsKeys(view, plugin.name));
             }
             applyGuestColorScheme(view);
             view.executeJavaScript(getFlomoInjectScript()).catch((e) => {
@@ -549,23 +704,31 @@ export function mountFlomoPanel(options: {
                 options.onUrl?.(abs);
             }
         };
+        view.addEventListener("did-attach", onReady as EventListener);
         view.addEventListener("dom-ready", onReady as EventListener);
         if (options.onUrl) {
             view.addEventListener("did-navigate", onNavigate as EventListener);
             view.addEventListener("did-navigate-in-page", onNavigate as EventListener);
-            cleanups.push(() => {
+            viewCleanups.push(() => {
                 view.removeEventListener("did-navigate", onNavigate as EventListener);
                 view.removeEventListener("did-navigate-in-page", onNavigate as EventListener);
             });
         }
         if (options.onTitle) {
             view.addEventListener("page-title-updated", onPageTitle as EventListener);
-            cleanups.push(() => view.removeEventListener("page-title-updated", onPageTitle as EventListener));
+            viewCleanups.push(() => view.removeEventListener("page-title-updated", onPageTitle as EventListener));
         }
-        cleanups.push(() => view.removeEventListener("dom-ready", onReady as EventListener));
+        viewCleanups.push(() => {
+            view.removeEventListener("did-attach", onReady as EventListener);
+            view.removeEventListener("dom-ready", onReady as EventListener);
+        });
+        if (webviewGuestReady(view)) {
+            onReady();
+        }
     }
 
     return () => {
+        unbindWebview();
         cleanups.forEach((fn) => fn());
         cleanups.length = 0;
         if (webview) {
