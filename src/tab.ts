@@ -1,6 +1,7 @@
 import {
     openTab,
     type Custom,
+    type IEventBusMap,
 } from "siyuan";
 import {
     FLOMO_URL,
@@ -106,57 +107,32 @@ export function openFlomoTab(plugin: FlomoPlugin, url = FLOMO_URL, openNew = tru
     });
 }
 
-function closestEditorLink(el: Element | null): HTMLElement | null {
-    let current: Element | null = el;
-    while (current && current !== document.body) {
-        if (current.tagName === "A" && current.getAttribute("href")) {
-            return current as HTMLElement;
-        }
-        const dataType = (current.getAttribute("data-type") || "").split(" ");
-        if (dataType.indexOf("a") >= 0) {
-            return current as HTMLElement;
-        }
-        if (current.classList.contains("av__celltext--url")) {
-            return current as HTMLElement;
-        }
-        current = current.parentElement;
+const EDITOR_LINK_ROOT = ".protyle-wysiwyg, .protyle-preview, .b3-typography";
+
+/** 只拦编辑器左键；菜单 / 快捷键「使用默认程序打开」不带鼠标事件，交给系统默认程序 */
+function isEditorOpenLinkEvent(origin?: MouseEvent | KeyboardEvent): boolean {
+    if (!(origin instanceof MouseEvent) || origin.button !== 0) {
+        return false;
     }
-    return null;
+    const el = origin.target instanceof Element ?
+        origin.target :
+        (origin.target as Node | null)?.parentElement;
+    return !!el?.closest(EDITOR_LINK_ROOT);
 }
 
-function linkHrefOf(el: HTMLElement): string {
-    return el.getAttribute("data-href") || el.getAttribute("href") || el.getAttribute("data-url") || "";
-}
-
-/** 捕获阶段拦住 flomo 链接，避免思源随后 shell.openExternal */
-export function bindFlomoLinkClicks(plugin: FlomoPlugin): () => void {
-    const onCaptureClick = (event: MouseEvent) => {
-        if (event.button !== 0 || event.defaultPrevented) {
+/** 通过 open-link 拦住编辑器里的 flomo 链接，避免内核随后 shell.openExternal */
+export function bindFlomoOpenLink(plugin: FlomoPlugin): () => void {
+    const onOpenLink = (event: CustomEvent<IEventBusMap["open-link"]>) => {
+        if (!isEditorOpenLinkEvent(event.detail.event)) {
             return;
         }
-        const el = event.target instanceof Element ?
-            event.target :
-            (event.target as Node | null)?.parentElement;
-        const inEditor = el?.closest(".protyle-wysiwyg, .protyle-preview, .b3-typography");
-        if (!inEditor) {
-            return;
-        }
-        const sel = window.getSelection();
-        if (sel && sel.toString() !== "" && !event.shiftKey) {
-            return;
-        }
-        const linkEl = closestEditorLink(el);
-        if (!linkEl) {
-            return;
-        }
-        const href = parseFlomoUrl(linkHrefOf(linkEl));
+        const href = parseFlomoUrl(event.detail.href);
         if (!href) {
             return;
         }
         event.preventDefault();
-        event.stopImmediatePropagation();
         openFlomoTab(plugin, href, true);
     };
-    document.addEventListener("click", onCaptureClick, true);
-    return () => document.removeEventListener("click", onCaptureClick, true);
+    plugin.eventBus.on("open-link", onOpenLink);
+    return () => plugin.eventBus.off("open-link", onOpenLink);
 }

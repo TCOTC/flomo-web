@@ -23,7 +23,7 @@ import {
     STORAGE_SESSION,
 } from "./session";
 import {
-    bindFlomoLinkClicks,
+    bindFlomoOpenLink,
     emptyOpenFlomoTabs,
     hydrateOpenFlomoTabs,
     openFlomoTab,
@@ -40,7 +40,7 @@ const ICON_SVG =
 
 export default class FlomoWebPlugin extends Plugin {
     declare i18n: typeof zhCN;
-    private unbindLinkClicks?: () => void;
+    private unbindOpenLink?: () => void;
     private unbindPaste?: () => void;
     private config: FlomoConfig = {...DEFAULT_CONFIG};
     /** onload / onDataChanged / onunload 会交错触发 loadData，用票据丢弃过期回调 */
@@ -52,7 +52,7 @@ export default class FlomoWebPlugin extends Plugin {
         registerFlomoDock(this);
         registerFlomoTab(this);
         hydrateOpenFlomoTabs(this);
-        this.syncLinkClicks();
+        this.syncOpenLink();
         this.unbindPaste = bindFlomoPaste(this);
         this.setupSetting();
         this.loadConfig();
@@ -89,8 +89,8 @@ export default class FlomoWebPlugin extends Plugin {
     onunload() {
         // 作废进行中的 loadConfig，避免卸载后回调又 applyConfig
         this.configTicket++;
-        this.unbindLinkClicks?.();
-        this.unbindLinkClicks = undefined;
+        this.unbindOpenLink?.();
+        this.unbindOpenLink = undefined;
         this.unbindPaste?.();
         this.unbindPaste = undefined;
         emptyOpenFlomoTabs(this);
@@ -151,7 +151,7 @@ export default class FlomoWebPlugin extends Plugin {
             }
             this.config = normalizeConfig(data);
             applyConfig(this.config);
-            this.syncLinkClicks();
+            this.syncOpenLink();
         }).catch((e) => {
             if (ticket !== this.configTicket) {
                 return;
@@ -182,7 +182,7 @@ export default class FlomoWebPlugin extends Plugin {
                 }
                 this.config = {...draft};
                 applyConfig(this.config);
-                this.syncLinkClicks();
+                this.syncOpenLink();
                 this.saveData(STORAGE_NAME, this.config).catch((e) => {
                     const errorMessage = `${this.displayName}: failed to save data [${STORAGE_NAME}]: ${e.msg || e}`;
                     showMessage(errorMessage);
@@ -201,16 +201,16 @@ export default class FlomoWebPlugin extends Plugin {
         this.addSwitch(this.i18n.showDevToolsButton, this.i18n.showDevToolsButtonDesc, "showDevToolsButton", takeDraft);
     }
 
-    /** 仅在配置启用时挂上编辑器 flomo 链接的捕获监听 */
-    private syncLinkClicks() {
+    /** 仅在配置启用时监听 open-link，拦截编辑器中的 flomo 链接 */
+    private syncOpenLink() {
         if (this.config.interceptEditorFlomoLinks) {
-            if (!this.unbindLinkClicks) {
-                this.unbindLinkClicks = bindFlomoLinkClicks(this);
+            if (!this.unbindOpenLink) {
+                this.unbindOpenLink = bindFlomoOpenLink(this);
             }
             return;
         }
-        this.unbindLinkClicks?.();
-        this.unbindLinkClicks = undefined;
+        this.unbindOpenLink?.();
+        this.unbindOpenLink = undefined;
     }
 
     private addSwitch(
