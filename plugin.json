@@ -2,7 +2,7 @@
   "name": "flomo-web",
   "author": "Jeffrey Chen",
   "url": "https://github.com/TCOTC/flomo-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "3.8.2-alpha.1",
   "backends": ["windows", "linux", "darwin"],
   "frontends": ["desktop", "desktop-window"],
